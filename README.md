@@ -107,28 +107,20 @@ your frontend opens an SSE stream (or polls every 3s as fallback) on the payment
 ## quickstart
 
 ```bash
-docker run \
-  -e DATABASE_URL=postgres://user:pass@host/paystable \
-  -e GATEWAY=payu \
-  -e API_KEY=... \
-  -e WEBHOOK_SECRET=... \
-  -p 8080:8080 \
-  paystable/paystable
-```
-
-or, on a bare linux box:
-
-```bash
 curl -sSL https://get.paystable.dev | sh
+cp .env.example .env
+# fill in DATABASE_URL, GATEWAY, API keys
+./paystable
+# dashboard at http://localhost:8080/dashboard
 ```
 
-single static Go binary. no JVM, no Node runtime, no Python. dashboard is embedded via `embed.FS`. one process. one database. that's it.
+that's it. single static Go binary. no JVM, no Node runtime, no Python. one process, one database, accepting webhooks. dashboard live.
+
+for local development with postgres included:
 
 ```bash
 docker compose up
 ```
-
-…brings up paystable + postgres + the dashboard, end-to-end, for local development.
 
 ---
 

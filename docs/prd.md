@@ -180,7 +180,7 @@ This is not an edge case. Every team running on Indian payment gateways without 
 - **Hold Manager** — TTL tracking, final-verification-before-release.
 - **Outbox Delivery** — At-least-once delivery to merchant with idempotency keys.
 - **Reconciliation Ledger** — Append-only log of all events and state transitions.
-- **Ops Dashboard** — React UI embedded in binary via `embed.FS`.
+- **Ops Dashboard** — React UI compiled at build time and embedded into the Go binary. Served at `/dashboard`. No separate frontend server, no node runtime required.
 
 ---
 
@@ -484,7 +484,7 @@ evtSource.addEventListener('status_change', (e) => {
 | NFR-2 | Throughput | Handle 1000 concurrent holds without degradation on a single 2-core instance. |
 | NFR-3 | Availability | Webhook ingestion must survive app-layer restarts (postgres is the durability layer). |
 | NFR-4 | Data Retention | Ledger entries retained indefinitely. Webhook raw payloads retained 90 days (configurable). |
-| NFR-5 | Deployment | Single static binary. No runtime dependencies beyond postgres. |
+| NFR-5 | Deployment | Single static binary. No runtime dependencies beyond postgres. Pre-built binaries published on GitHub Releases for linux/amd64, linux/arm64, darwin/amd64, darwin/arm64. Ops dashboard embedded, no separate frontend server. |
 | NFR-6 | Startup | Cold start to accepting webhooks < 3 seconds. |
 | NFR-7 | Resource | Memory < 128MB RSS under normal load. No goroutine leaks. |
 | NFR-8 | Observability | Structured JSON logs. Prometheus metrics endpoint. Health check at `/healthz`. |
@@ -534,13 +534,21 @@ evtSource.addEventListener('status_change', (e) => {
 
 ### 13.1 Deployment Modes
 
+Paystable ships as a single static binary. No Docker image to pull, no Kubernetes, no YAML config files.
+
 | Mode | Description |
 |------|-------------|
-| Docker | `docker run paystable/paystable` with env vars. |
-| Docker Compose | Paystable + Postgres + Dashboard. One command for local dev. |
-| Bare binary | `curl -sSL https://get.paystable.dev \| sh`. Systemd unit file provided. |
+| Install script (recommended) | `curl -sSL https://get.paystable.dev \| sh` detects OS/arch and downloads the correct binary. |
+| Direct download | Pre-built binaries on GitHub Releases for linux/amd64, linux/arm64, darwin/amd64, darwin/arm64. |
+| Docker Compose (local dev only) | Spins up paystable + postgres for local development. Not a production recommendation. |
+
+PostgreSQL 16+ is the only external dependency. User installs postgres themselves or runs `docker run -d -e POSTGRES_PASSWORD=pass -p 5432:5432 postgres:16`. On first startup, the binary automatically detects if migrations are needed and runs them. User never touches SQL.
+
+The ops dashboard is embedded in the binary and served at `http://localhost:PORT/dashboard` immediately on startup. No additional setup.
 
 ### 13.2 Configuration (Environment Variables)
+
+All configuration is via environment variables only. No YAML, no TOML, no config files. A `.env.example` ships in the repo with every variable documented inline. User copies it to `.env`, fills in their values, and runs the binary.
 
 | Variable | Required | Description |
 |----------|----------|-------------|
@@ -613,6 +621,7 @@ Paystable does not own the frontend. But integrators need clear guidance on what
 | 4–5 | Outbound delivery manager: outbox, retries, HMAC signing, idempotency |
 | 5–6 | Ops dashboard: React UI, mismatch view, timeline, alerts (Slack/Telegram) |
 | 6 | Integration testing, soak test (simulated 1000-txn burst), documentation |
+| 6 | Publish GitHub Release with pre-built binaries for all supported platforms. Verify embedded dashboard renders correctly across Chrome, Firefox, Safari. |
 
 **Exit criteria:** One gateway (PayU), fully functional, deployed on a real fest ticketing system, zero false-negative confirmations over a 7-day soak test.
 
@@ -641,7 +650,7 @@ Paystable does not own the frontend. But integrators need clear guidance on what
 | Outbound delivery success | > 99.9% within 1 hour | Verified events delivered to merchant |
 | Webhook durability | 100% | Zero webhooks lost (all persisted or quarantined) |
 | Uptime | 99.9% | Webhook ingestion availability |
-| Adoption | 5 production deployments within 3 months of open-source launch | GitHub issues, Docker pulls |
+| Adoption | 5 production deployments within 3 months of open-source launch | GitHub issues, release binary downloads |
 
 ---
 

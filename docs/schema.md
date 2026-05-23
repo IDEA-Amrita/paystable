@@ -2,6 +2,8 @@
 
 PostgreSQL 16+. Single database, no external queues or caches [atleast for now, don't judge me].
 
+Schema is auto-migrated on binary startup. Users never run migrations manually.
+
 ---
 
 ## Design Decisions
