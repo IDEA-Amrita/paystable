@@ -175,6 +175,13 @@ we're building the thing we wish existed the day anokha shipped.
 
 ---
 
+## docs
+
+- [Product Requirements Document](docs/prd.md) - full PRD with API spec, state machine, security model, and UX guidance
+- [Database Schema](docs/schema.md) - every table, column, index, and the reasoning behind each design choice
+
+---
+
 ## license
 
 MIT. take it, run it, fork it, ship it.
