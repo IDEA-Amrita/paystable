@@ -1,6 +1,23 @@
 #!/bin/sh
 set -e
 
+# this script installs paystable on your machine
+#
+# usage:
+#   curl -sSL https://paystable.vercel.app | sh
+#
+# it detects your os and architecture, fetches the latest release
+# from GitHub, and installs the binary to /usr/local/bin
+#
+# supported platforms:
+#   - linux/amd64
+#   - linux/arm64
+#   - darwin/amd64 (macOS intel)
+#   - darwin/arm64 (macOS apple silicon)
+#
+# source: https://github.com/IDEA-Amrita/paystable
+#
+
 REPO="IDEA-Amrita/paystable"
 BINARY="paystable"
 INSTALL_DIR="/usr/local/bin"
