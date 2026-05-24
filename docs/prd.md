@@ -538,7 +538,7 @@ Paystable ships as a single static binary. No Docker image to pull, no Kubernete
 
 | Mode | Description |
 |------|-------------|
-| Install script (recommended) | `curl -sSL https://get.paystable.dev \| sh` detects OS/arch and downloads the correct binary. |
+| Install script (recommended) | `curl -sSL https://get.paystable.vercel.app \| sh` detects OS/arch and downloads the correct binary. |
 | Direct download | Pre-built binaries on GitHub Releases for linux/amd64, linux/arm64, darwin/amd64, darwin/arm64. |
 | Docker Compose (local dev only) | Spins up paystable + postgres for local development. Not a production recommendation. |
 
