@@ -107,7 +107,7 @@ your frontend opens an SSE stream (or polls every 3s as fallback) on the payment
 ## quickstart
 
 ```bash
-curl -sSL https://get.paystable.dev | sh
+curl -sSL https://get.paystable.vercel.app | sh
 cp .env.example .env
 # fill in DATABASE_URL, GATEWAY, API keys
 ./paystable
