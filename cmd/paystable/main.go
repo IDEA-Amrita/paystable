@@ -7,6 +7,7 @@ import (
 
 	"github.com/IDEA-Amrita/paystable/internal/config"
 	"github.com/IDEA-Amrita/paystable/internal/database"
+	"github.com/IDEA-Amrita/paystable/internal/hold"
 	"github.com/IDEA-Amrita/paystable/internal/webhook"
 )
 
@@ -31,18 +32,37 @@ func main() {
 		os.Exit(1)
 	}
 
+	holdStore := hold.NewStore(db)
+	holdHandler := hold.NewHandler(holdStore, cfg.HoldMaxTTLS)
+
 	mux := http.NewServeMux()
+
+	//public endpoints
 	mux.Handle("POST /webhooks/{gateway}", webhook.NewHandler(db, cfg.WebhookSecret))
+	mux.HandleFunc("GET /api/v1/transactions/{txn_id}/status", holdHandler.HandleStatus)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
+
+	//authenticated endpoints
+	mux.Handle("POST /api/v1/hold", authMiddleware(cfg.AdminAPIKey, http.HandlerFunc(holdHandler.HandleCreate)))
 
 	slog.Info("paystable starting", "port", cfg.Port)
 	if err := http.ListenAndServe(":"+cfg.Port, mux); err != nil {
 		slog.Error("server error", "error", err)
 		os.Exit(1)
 	}
+}
+
+func authMiddleware(apiKey string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		token := r.Header.Get("Authorization")
+		if token != "Bearer "+apiKey {
+			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func setupLogger(level string) {
