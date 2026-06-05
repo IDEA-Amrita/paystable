@@ -1,16 +1,20 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"os"
 
 	"github.com/IDEA-Amrita/paystable/internal/config"
 	"github.com/IDEA-Amrita/paystable/internal/database"
+	"github.com/IDEA-Amrita/paystable/internal/gateway"
+	"github.com/IDEA-Amrita/paystable/internal/gateway/payu"
 	"github.com/IDEA-Amrita/paystable/internal/hold"
+	"github.com/IDEA-Amrita/paystable/internal/stabilizer"
 	"github.com/IDEA-Amrita/paystable/internal/webhook"
 )
-
+//configuring env,database connection and migration,wenbhook handlers
 func main() {
 	cfg, err := config.Load()
 	if err != nil {
@@ -35,16 +39,29 @@ func main() {
 	holdStore := hold.NewStore(db)
 	holdHandler := hold.NewHandler(holdStore, cfg.HoldMaxTTLS)
 
+	// start stabilizer worker (background)
+	lag := stabilizer.NewLagEstimator()
+	payuClient := payu.NewClient(os.Getenv("PAYU_STATUS_URL"), cfg.GatewayAPIKey)
+	go stabilizer.Run(context.Background(), db, cfg, lag, func(g string) gateway.GatewayClient {
+		if g == "payu" {
+			return payuClient
+		}
+		return nil
+	})
+
 	mux := http.NewServeMux()
 
 	//public endpoints
+	//1)hmac verification n stores gateway signals in db
 	mux.Handle("POST /webhooks/{gateway}", webhook.NewHandler(db, cfg.WebhookSecret))
+	//2)returns hold transaction state n timeStamp
 	mux.HandleFunc("GET /api/v1/transactions/{txn_id}/status", holdHandler.HandleStatus)
+	//3)health check n state if current process is active or not
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("ok"))
 	})
-
 	//authenticated endpoints
+	//4)admin can create hold transaction with this endpoint
 	mux.Handle("POST /api/v1/hold", authMiddleware(cfg.AdminAPIKey, http.HandlerFunc(holdHandler.HandleCreate)))
 
 	slog.Info("paystable starting", "port", cfg.Port)
@@ -53,7 +70,7 @@ func main() {
 		os.Exit(1)
 	}
 }
-
+//checks for valid API key in Authorisation header
 func authMiddleware(apiKey string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := r.Header.Get("Authorization")
@@ -64,7 +81,7 @@ func authMiddleware(apiKey string, next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
-
+//maps logs from local to global slog lvl(for centalised slog error maintainance)
 func setupLogger(level string) {
 	var l slog.Level
 	switch level {

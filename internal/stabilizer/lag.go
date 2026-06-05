@@ -6,9 +6,7 @@ import (
 	"time"
 )
 
-// LagEstimator learns, per gateway, how long a genuinely successful payment
-// takes to appear on the verification API after the webhook arrives. Only feed
-// it samples from transactions that confirmed; see docs/lag-estimator.md
+// webHooks  will arrive at paystable n one more repoll request will go to payMent gateway ryt!!this buffer time is lag estimator
 type LagEstimator struct {
 	mu        sync.RWMutex
 	maxSample int
@@ -21,6 +19,7 @@ type defaults struct {
 	p50, p75, p90, p99 time.Duration
 }
 
+//1) NewLagEstimator initializes a LagEstimator with default values(10s, 30s, 60s, 180s) and empty samples.
 func NewLagEstimator() *LagEstimator {
 	return &LagEstimator{
 		maxSample: 500,
@@ -35,8 +34,7 @@ func NewLagEstimator() *LagEstimator {
 	}
 }
 
-// Record adds a success-propagation lag sample (webhook arrival to first
-// success poll). only call for confirmed transactions
+//2) Record adds a new lag sample for a gateway, ensuring it doesn't exceed maxSample. Negative lags are treated as zero.
 func (e *LagEstimator) Record(gateway string, lag time.Duration) {
 	if lag < 0 {
 		lag = 0
@@ -51,15 +49,13 @@ func (e *LagEstimator) Record(gateway string, lag time.Duration) {
 	e.samples[gateway] = s
 }
 
-// Schedule is when to poll (to catch a late success) and when to give up and
-// declare failure.
+//ScheduleFor returns the poll schedule for a gateway, using the conservative prior until enough samples accumulate
 type Schedule struct {
 	CatchPolls []time.Duration
 	FailAfter  time.Duration
 }
 
-// ScheduleFor returns the poll schedule for a gateway, using the conservative
-// prior until enough samples accumulate, then empirical quantiles
+//3) ScheduleFor computes the poll schedule for a gateway based on recorded samples. If samples are below minSample, it uses the prior defaults
 func (e *LagEstimator) ScheduleFor(gateway string) Schedule {
 	e.mu.RLock()
 	s := e.samples[gateway]
@@ -84,8 +80,8 @@ func (e *LagEstimator) ScheduleFor(gateway string) Schedule {
 	}
 }
 
-// quantile returns the nearest-rank value at percentile q (0..1). sorted must
-// be ascending
+
+//4) quantile computes the q-th quantile from a sorted slice of durations. If the slice is empty, it returns zero. If q is out of bounds, it returns the closest valid quantile.
 func quantile(sorted []time.Duration, q float64) time.Duration {
 	if len(sorted) == 0 {
 		return 0
@@ -96,7 +92,7 @@ func quantile(sorted []time.Duration, q float64) time.Duration {
 	}
 	return sorted[rank]
 }
-
+//5) SampleCount returns the number of samples recorded for a gateway.
 func (e *LagEstimator) SampleCount(gateway string) int {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
