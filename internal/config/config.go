@@ -11,6 +11,7 @@ type Config struct {
 	Gateway                string
 	WebhookSecret          string
 	GatewayAPIKey          string
+	PayuStatusURL          string
 	MerchantCallbackSecret string
 	AdminAPIKey            string
 	Port                   string
@@ -33,12 +34,13 @@ func Load() (*Config, error) {
 	}
 
 	required := map[string]*string{
-		"DATABASE_URL":            &c.DatabaseURL,
-		"GATEWAY":                 &c.Gateway,
-		"WEBHOOK_SECRET":          &c.WebhookSecret,
-		"GATEWAY_API_KEY":         &c.GatewayAPIKey,
+		"DATABASE_URL":             &c.DatabaseURL,
+		"GATEWAY":                  &c.Gateway,
+		"WEBHOOK_SECRET":           &c.WebhookSecret,
+		"GATEWAY_API_KEY":          &c.GatewayAPIKey,
+		"PAYU_STATUS_URL":          &c.PayuStatusURL,
 		"MERCHANT_CALLBACK_SECRET": &c.MerchantCallbackSecret,
-		"ADMIN_API_KEY":           &c.AdminAPIKey,
+		"ADMIN_API_KEY":            &c.AdminAPIKey,
 	}
 
 	for key, ptr := range required {

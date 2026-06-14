@@ -41,7 +41,7 @@ func main() {
 
 	// start stabilizer worker (background)
 	lag := stabilizer.NewLagEstimator()
-	payuClient := payu.NewClient(os.Getenv("PAYU_STATUS_URL"), cfg.GatewayAPIKey)
+	payuClient := payu.NewClient(cfg.PayuStatusURL, cfg.GatewayAPIKey)
 	go stabilizer.Run(context.Background(), db, cfg, lag, func(g string) gateway.GatewayClient {
 		if g == "payu" {
 			return payuClient
