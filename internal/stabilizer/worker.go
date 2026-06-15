@@ -273,7 +273,7 @@ func markHoldExhausted(ctx context.Context, db *sql.DB, txnID, reason string) er
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	var fromStatus sql.NullString
 	// Lock the hold row to prevent concurrent finalization.
@@ -327,7 +327,7 @@ func markHoldIndeterminate(ctx context.Context, db *sql.DB, txnID string, gatewa
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	var fromStatus sql.NullString
 	if err := tx.QueryRowContext(ctx, `SELECT status FROM holds WHERE txn_id=$1 FOR UPDATE`, txnID).Scan(&fromStatus); err != nil {
@@ -384,7 +384,7 @@ func finalizeHold(ctx context.Context, db *sql.DB, txnID string) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	var fromStatus sql.NullString
 	// Lock the hold row to prevent concurrent finalization.
 	if err := tx.QueryRowContext(ctx, `SELECT status FROM holds WHERE txn_id=$1 FOR UPDATE`, txnID).Scan(&fromStatus); err != nil {
