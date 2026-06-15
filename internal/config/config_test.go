@@ -10,6 +10,7 @@ func setRequiredEnvs() {
 	os.Setenv("GATEWAY", "payu")
 	os.Setenv("WEBHOOK_SECRET", "secret")
 	os.Setenv("GATEWAY_API_KEY", "gateway_key")
+	os.Setenv("PAYU_STATUS_URL", "https://info.payu.in/merchant/postservice")
 	os.Setenv("MERCHANT_CALLBACK_SECRET", "callback_secret")
 	os.Setenv("ADMIN_API_KEY", "admin_key")
 }
@@ -17,7 +18,7 @@ func setRequiredEnvs() {
 func clearAllEnvs() {
 	for _, env := range []string{
 		"DATABASE_URL", "GATEWAY", "WEBHOOK_SECRET", "GATEWAY_API_KEY",
-		"MERCHANT_CALLBACK_SECRET", "ADMIN_API_KEY", "PORT",
+		"PAYU_STATUS_URL", "MERCHANT_CALLBACK_SECRET", "ADMIN_API_KEY", "PORT",
 		"STABILIZATION_N", "MAX_BACKOFF_S", "HOLD_MAX_TTL_S", "LOG_LEVEL",
 	} {
 		os.Unsetenv(env)

@@ -14,7 +14,7 @@ import (
 
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
-
+//1)Connect: establishes a connection to the PostgreSQL database using the provided URL
 func Connect(databaseURL string) (*sql.DB, error) {
 	db, err := sql.Open("postgres", databaseURL)
 	if err != nil {
@@ -25,7 +25,7 @@ func Connect(databaseURL string) (*sql.DB, error) {
 	}
 	return db, nil
 }
-
+//2)Migrate: ensures the schema_migrations table exists, reads migration files from the embedded filesystem, and used for executing all sql files
 func Migrate(db *sql.DB) error {
 	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
 		version text PRIMARY KEY,

@@ -6,9 +6,7 @@ import (
 	"time"
 )
 
-// LagEstimator learns, per gateway, how long a genuinely successful payment
-// takes to appear on the verification API after the webhook arrives. Only feed
-// it samples from transactions that confirmed; see docs/lag-estimator.md
+// lagEstimator:webHook arrival->gateway API status reflection duration
 type LagEstimator struct {
 	mu        sync.RWMutex
 	maxSample int
@@ -21,6 +19,7 @@ type defaults struct {
 	p50, p75, p90, p99 time.Duration
 }
 
+//1) NewLagEstimator is used to determine the timing for p50,p75,p90 and p99(eg:p50 means p50 = 12s it means 50% of past confirmed successes showed up within 12s of the webhook)
 func NewLagEstimator() *LagEstimator {
 	return &LagEstimator{
 		maxSample: 500,
@@ -35,8 +34,7 @@ func NewLagEstimator() *LagEstimator {
 	}
 }
 
-// Record adds a success-propagation lag sample (webhook arrival to first
-// success poll). only call for confirmed transactions
+//2) used to keep latest records with respect to a given bounded size
 func (e *LagEstimator) Record(gateway string, lag time.Duration) {
 	if lag < 0 {
 		lag = 0
@@ -46,36 +44,35 @@ func (e *LagEstimator) Record(gateway string, lag time.Duration) {
 
 	s := append(e.samples[gateway], lag)
 	if len(s) > e.maxSample {
-		s = s[len(s)-e.maxSample:]
+		s = s[len(s)-e.maxSample:]//to maintain once recent ones,if ir 502nd value,its updates in current 2nd value(bound 500)
 	}
 	e.samples[gateway] = s
 }
 
-// Schedule is when to poll (to catch a late success) and when to give up and
-// declare failure.
+//ScheduleFor returns the poll schedule for a gateway, using asymetric bounded polling
 type Schedule struct {
 	CatchPolls []time.Duration
 	FailAfter  time.Duration
 }
 
-// ScheduleFor returns the poll schedule for a gateway, using the conservative
-// prior until enough samples accumulate, then empirical quantiles
+//3) ScheduleFor returns the poll schedule for a gateway, using asymetric bounded polling
 func (e *LagEstimator) ScheduleFor(gateway string) Schedule {
+	// 1.1 fix: copy inside RLock so concurrent Record() cannot race on the underlying array.
 	e.mu.RLock()
-	s := e.samples[gateway]
+	s := make([]time.Duration, len(e.samples[gateway]))
+	copy(s, e.samples[gateway])
 	e.mu.RUnlock()
 
 	var p50, p75, p90, p99 time.Duration
 	if len(s) < e.minSample {
-		p50, p75, p90, p99 = e.prior.p50, e.prior.p75, e.prior.p90, e.prior.p99
+		p50, p75, p90, p99 = e.prior.p50, e.prior.p75, e.prior.p90, e.prior.p99 //e.prior refers to default values
 	} else {
-		sorted := make([]time.Duration, len(s))
-		copy(sorted, s)
-		sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
-		p50 = quantile(sorted, 0.50)
-		p75 = quantile(sorted, 0.75)
-		p90 = quantile(sorted, 0.90)
-		p99 = quantile(sorted, 0.99)
+		// s is already a safe copy — sort it directly.
+		sort.Slice(s, func(i, j int) bool { return s[i] < s[j] })
+		p50 = quantile(s, 0.50)
+		p75 = quantile(s, 0.75)
+		p90 = quantile(s, 0.90)
+		p99 = quantile(s, 0.99)
 	}
 
 	return Schedule{
@@ -84,8 +81,8 @@ func (e *LagEstimator) ScheduleFor(gateway string) Schedule {
 	}
 }
 
-// quantile returns the nearest-rank value at percentile q (0..1). sorted must
-// be ascending
+
+//4) A quantile pX is the value such that X% of samples are ≤ that value(similar to ascending order n percentile/median concept).If p50 = 12s it means 50% of past confirmed successes showed up within 12s of the webhook.
 func quantile(sorted []time.Duration, q float64) time.Duration {
 	if len(sorted) == 0 {
 		return 0
@@ -94,9 +91,10 @@ func quantile(sorted []time.Duration, q float64) time.Duration {
 	if rank >= len(sorted) {
 		rank = len(sorted) - 1
 	}
-	return sorted[rank]
+	return sorted[rank] //returns duration for given quantile 
 }
 
+//5) SampleCount returns the number of samples recorded for a gateway.
 func (e *LagEstimator) SampleCount(gateway string) int {
 	e.mu.RLock()
 	defer e.mu.RUnlock()

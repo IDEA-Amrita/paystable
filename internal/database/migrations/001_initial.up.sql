@@ -1,6 +1,6 @@
 BEGIN;
-
---holds: one row per checkout attempt
+--(1)
+--1.1)local record for a checkout/transaction
 CREATE TABLE holds (
     id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     txn_id      text NOT NULL UNIQUE,
@@ -25,7 +25,7 @@ CREATE INDEX idx_holds_status ON holds (status) WHERE status IN ('PENDING', 'VER
 CREATE INDEX idx_holds_expires_at ON holds (expires_at) WHERE status = 'PENDING';
 CREATE INDEX idx_holds_gateway_status ON holds (gateway, status);
 
---state transition enforcement trigger
+--1.2)state transition enforcement trigger(prevents illegal transitions)
 CREATE OR REPLACE FUNCTION enforce_hold_transitions() RETURNS trigger AS $$
 BEGIN
     IF OLD.status IN ('CONFIRMED', 'FAILED', 'REFUNDED') THEN
@@ -43,7 +43,8 @@ CREATE TRIGGER trg_hold_transitions
     FOR EACH ROW
     EXECUTE FUNCTION enforce_hold_transitions();
 
---webhooks: partitioned by month on received_at
+--(2)
+--2.1)webhooks: partitioned by month on received_at
 CREATE TABLE webhooks (
     id              bigint GENERATED ALWAYS AS IDENTITY,
     txn_id          text NOT NULL REFERENCES holds(txn_id),
@@ -56,7 +57,7 @@ CREATE TABLE webhooks (
     PRIMARY KEY (id, received_at)
 ) PARTITION BY RANGE (received_at);
 
---create initial partitions (current month and next month)
+--2.2)create initial partitions (current month and next month)
 CREATE TABLE webhooks_y2026m05 PARTITION OF webhooks
     FOR VALUES FROM ('2026-05-01') TO ('2026-06-01');
 CREATE TABLE webhooks_y2026m06 PARTITION OF webhooks
@@ -66,7 +67,7 @@ CREATE INDEX idx_webhooks_txn_id ON webhooks (txn_id);
 CREATE INDEX idx_webhooks_gateway_event_id ON webhooks (gateway, gateway_event_id);
 CREATE INDEX idx_webhooks_received_at ON webhooks (received_at);
 
---webhooks_rejected: quarantine for failed HMAC
+--2.3)webhooks_rejected: quarantine for failed HMAC
 CREATE TABLE webhooks_rejected (
     id              bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     gateway         text NOT NULL,
@@ -80,7 +81,7 @@ CREATE TABLE webhooks_rejected (
 CREATE INDEX idx_rejected_received_at ON webhooks_rejected (received_at);
 CREATE INDEX idx_rejected_gateway ON webhooks_rejected (gateway);
 
---verification_polls: each poll attempt, doubles as job queue
+--3)verification_polls: implements retries, and provides a full timestamped history of every check for debugging/audit.
 CREATE TABLE verification_polls (
     id              bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     txn_id          text NOT NULL REFERENCES holds(txn_id),
@@ -100,7 +101,7 @@ CREATE TABLE verification_polls (
 CREATE INDEX idx_polls_job_queue ON verification_polls (scheduled_at) WHERE status = 'pending';
 CREATE INDEX idx_polls_txn_id ON verification_polls (txn_id);
 
---ledger: append-only audit trail
+--4)ledger: usiness audit trail of decisions/state transitions
 CREATE TABLE ledger (
     id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     txn_id      text NOT NULL REFERENCES holds(txn_id),
@@ -115,7 +116,7 @@ CREATE TABLE ledger (
 CREATE INDEX idx_ledger_txn_id_created ON ledger (txn_id, created_at);
 CREATE INDEX idx_ledger_event_type ON ledger (event_type) WHERE event_type = 'state_transition';
 
---outbox: delivery queue to merchant app
+--5)outbox: delivery queue to merchant app
 CREATE TABLE outbox (
     id              bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     txn_id          text NOT NULL REFERENCES holds(txn_id),
@@ -139,7 +140,7 @@ CREATE INDEX idx_outbox_job_queue ON outbox (next_attempt_at) WHERE status = 'pe
 CREATE INDEX idx_outbox_txn_id ON outbox (txn_id);
 CREATE INDEX idx_outbox_status ON outbox (status) WHERE status = 'exhausted';
 
---gateway_secrets: webhook signing keys with rotation
+--6)gateway_secrets: stores encrypted webhook signing secrets&webhook signing keys with rotation
 CREATE TABLE gateway_secrets (
     id                  bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     gateway             text NOT NULL,

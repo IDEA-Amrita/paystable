@@ -82,6 +82,12 @@ func (h *Handler) persist(gateway string, params map[string]string) error {
 		return err
 	}
 
+	// enqueue a verification poll to accelerate stabilization (best-effort)
+	if _, err := h.db.Exec(`INSERT INTO verification_polls (txn_id, attempt_number, scheduled_at, status)
+		SELECT $1, 1, now(), 'pending' WHERE EXISTS (SELECT 1 FROM holds WHERE txn_id = $1)`, txnID); err != nil {
+		slog.Warn("enqueue verification poll after webhook failed", "txn_id", txnID, "error", err)
+	}
+
 	slog.Info("webhook persisted", "gateway", gateway, "txn_id", txnID, "event", eventType)
 	return nil
 }

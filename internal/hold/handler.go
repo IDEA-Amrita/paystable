@@ -43,7 +43,7 @@ type Handler struct {
 func NewHandler(store *Store, maxTTL int) *Handler {
 	return &Handler{store: store, maxTTL: maxTTL, defaultTTL: 300}
 }
-
+//1)HandleCreate: validates request n applies defaults, creates hold via store, returns hold details with read token
 func (h *Handler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 	var req CreateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -87,7 +87,7 @@ func (h *Handler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusCreated, resp)
 }
-
+//2)HandleStatus: validates request, retrieves hold by txn_id and read token, returns hold status and details
 func (h *Handler) HandleStatus(w http.ResponseWriter, r *http.Request) {
 	txnID := r.PathValue("txn_id")
 	token := r.URL.Query().Get("token")

@@ -11,6 +11,7 @@ type Config struct {
 	Gateway                string
 	WebhookSecret          string
 	GatewayAPIKey          string
+	PayuStatusURL          string
 	MerchantCallbackSecret string
 	AdminAPIKey            string
 	Port                   string
@@ -19,7 +20,10 @@ type Config struct {
 	HoldMaxTTLS            int
 	LogLevel               string
 }
-
+//1)StabilizationN:What: number of consecutive agreeing verification polls required to declare a terminal state (default 3)
+//2)MaxBackoffS:What: maximum backoff time in seconds for retry attempts (default 160)// per-attempt cap, not a cumulative cap,eg for 160=>stops at 160s not when cumSum is 160s
+//3)HoldMaxTTLS:What: is the absolute lifetime (seconds) of a hold from creation → expires_at(default 900)
+//so when it checking reaches with MaxBackoffS it doesnt expand from there rather maintain there itself.But when cumSum of time taken exceeds HoldMaxTTLS,the checking break.from there it will see last N transactions(StabilizationN) n based on thatitss say whether success or failure
 func Load() (*Config, error) {
 	c := &Config{
 		Port:           envOr("PORT", "8080"),
@@ -30,12 +34,13 @@ func Load() (*Config, error) {
 	}
 
 	required := map[string]*string{
-		"DATABASE_URL":            &c.DatabaseURL,
-		"GATEWAY":                 &c.Gateway,
-		"WEBHOOK_SECRET":          &c.WebhookSecret,
-		"GATEWAY_API_KEY":         &c.GatewayAPIKey,
+		"DATABASE_URL":             &c.DatabaseURL,
+		"GATEWAY":                  &c.Gateway,
+		"WEBHOOK_SECRET":           &c.WebhookSecret,
+		"GATEWAY_API_KEY":          &c.GatewayAPIKey,
+		"PAYU_STATUS_URL":          &c.PayuStatusURL,
 		"MERCHANT_CALLBACK_SECRET": &c.MerchantCallbackSecret,
-		"ADMIN_API_KEY":           &c.AdminAPIKey,
+		"ADMIN_API_KEY":            &c.AdminAPIKey,
 	}
 
 	for key, ptr := range required {
