@@ -14,12 +14,6 @@ import (
 	"github.com/IDEA-Amrita/paystable/internal/gateway"
 )
 
-// maxPollAttempts is the maximum number of polling attempts per transaction.
-// Attempt 1 fires immediately; attempts 2-4 use p50, p75, p90 from the lag estimator.
-// Attempt 5 uses p99 (FailAfter) from the lag estimator.
-// After the 5th attempt the poll is abandoned.
-const maxPollAttempts = 5
-
 // 1)Main stabilizer loop
 // A)Run starts the stabilizer worker loop. clientFactory should return a GatewayClient for the given gateway name.
 func Run(ctx context.Context, db *sql.DB, cfg *config.Config, lag *LagEstimator, clientFactory func(string) gateway.GatewayClient) {
