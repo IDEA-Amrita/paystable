@@ -1,0 +1,57 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: paystable
+      POSTGRES_PASSWORD: paystable
+      POSTGRES_DB: paystable
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "paystable"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  mockgateway:
+    build:
+      context: .
+      dockerfile: testkit/mockgateway/Dockerfile
+    environment:
+      GATEWAY_KEY: ${GATEWAY_KEY}
+      GATEWAY_SALT: ${GATEWAY_SALT}
+      PAYSTABLE_URL: http://paystable:8080
+      PORT: 9090
+    ports:
+      - "9090:9090"
+
+  merchant:
+    build:
+      context: .
+      dockerfile: testkit/merchant/Dockerfile
+    environment:
+      PORT: 9091
+    ports:
+      - "9091:9091"
+
+  paystable:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgres://paystable:paystable@postgres:5432/paystable?sslmode=disable
+      GATEWAY: payu
+      WEBHOOK_SECRET: ${GATEWAY_SALT}
+      GATEWAY_API_KEY: ${GATEWAY_KEY}
+      PAYU_STATUS_URL: http://mockgateway:9090/merchant/postservice.php
+      MERCHANT_CALLBACK_SECRET: test-callback-secret
+      ADMIN_API_KEY: test-admin-key
+      PORT: 8080
+      STABILIZATION_N: 3
+      DELIVERY_ALLOW_INSECURE_CALLBACK: "true"
+      LOG_LEVEL: debug
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
