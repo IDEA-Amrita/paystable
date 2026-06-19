@@ -172,6 +172,7 @@ we're building the thing we wish existed the day anokha shipped.
 - [Product Requirements Document](docs/prd.md) - full PRD with API spec, state machine, security model, and UX guidance
 - [Database Schema](docs/schema.md) - every table, column, index, and the reasoning behind each design choice
 - [Lag Estimator](docs/lag-estimator.md) - how paystable learns per-gateway verification lag to confirm fast and fail honestly
+- [Callback Contract](docs/callback-contract.md) - the binding spec for outbound delivery to merchant apps (headers, signing, idempotency, retry)
 
 ---
 

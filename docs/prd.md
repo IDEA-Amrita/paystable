@@ -430,17 +430,20 @@ Authorization: Bearer <admin_key>
 4. **Poll or SSE** `GET /transactions/:id/status` on the payment-result page.
 5. **Verify HMAC** on inbound callbacks from paystable (signature in `X-Paystable-Signature` header).
 
-### 10.2 Callback Payload (Paystable → Merchant)
+Full integration spec: see [docs/callback-contract.md](callback-contract.md).
+
+### 10.2 Callback Payload (Paystable to Merchant)
 
 ```
 POST <merchant_callback_url>
 Content-Type: application/json
-X-Paystable-Signature: sha256=<hmac of body with merchant secret>
-X-Idempotency-Key: evt_verified_abc123
+X-Paystable-Signature: sha256=<hmac-sha256 of body with MERCHANT_CALLBACK_SECRET>
+X-Paystable-Idempotency-Key: evt_<txn_id>_<STATUS>
+X-Paystable-Timestamp: <unix_seconds>
 
 {
-  "event": "transaction.confirmed",
   "txn_id": "order_abc123",
+  "event": "transaction.confirmed",
   "status": "CONFIRMED",
   "amount": 49900,
   "currency": "INR",
@@ -452,9 +455,10 @@ X-Idempotency-Key: evt_verified_abc123
 
 ### 10.3 Merchant Response Contract
 
-- Return `2xx` within 10 seconds = delivery acknowledged.
-- Return `4xx` = permanent failure, no retry (merchant bug).
-- Return `5xx` or timeout = transient failure, paystable retries with backoff.
+- Return `2xx` within 10 seconds = delivery acknowledged. No further retries.
+- Return `4xx` (not 429) = permanent failure, no retry. Paystable marks exhausted and alerts ops.
+- Return `5xx`, `429`, or timeout = transient failure, paystable retries with exponential backoff (up to 8 attempts over ~24h).
+- Deduplicate on `X-Paystable-Idempotency-Key` before taking action. Paystable delivers at-least-once.
 
 ### 10.4 Frontend Integration Pattern
 

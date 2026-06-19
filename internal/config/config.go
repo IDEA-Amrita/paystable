@@ -19,6 +19,9 @@ type Config struct {
 	MaxBackoffS            int
 	HoldMaxTTLS            int
 	LogLevel               string
+	DeliveryTimeoutS       int
+	DeliveryConcurrency    int
+	DeliveryAllowInsecure  bool
 }
 //1)StabilizationN:What: number of consecutive agreeing verification polls required to declare a terminal state (default 3)
 //2)MaxBackoffS:What: maximum backoff time in seconds for retry attempts (default 160)// per-attempt cap, not a cumulative cap,eg for 160=>stops at 160s not when cumSum is 160s
@@ -31,6 +34,9 @@ func Load() (*Config, error) {
 		MaxBackoffS:    envIntOr("MAX_BACKOFF_S", 160),
 		HoldMaxTTLS:    envIntOr("HOLD_MAX_TTL_S", 900),
 		LogLevel:       envOr("LOG_LEVEL", "info"),
+		DeliveryTimeoutS:      envIntOr("DELIVERY_TIMEOUT_S", 10),
+		DeliveryConcurrency:   envIntOr("DELIVERY_WORKER_CONCURRENCY", 20),
+		DeliveryAllowInsecure: os.Getenv("DELIVERY_ALLOW_INSECURE_CALLBACK") == "true",
 	}
 
 	required := map[string]*string{

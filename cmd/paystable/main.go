@@ -5,15 +5,19 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/IDEA-Amrita/paystable/internal/config"
 	"github.com/IDEA-Amrita/paystable/internal/database"
+	"github.com/IDEA-Amrita/paystable/internal/delivery"
 	"github.com/IDEA-Amrita/paystable/internal/gateway"
 	"github.com/IDEA-Amrita/paystable/internal/gateway/payu"
 	"github.com/IDEA-Amrita/paystable/internal/hold"
 	"github.com/IDEA-Amrita/paystable/internal/stabilizer"
 	"github.com/IDEA-Amrita/paystable/internal/webhook"
 )
+
 //configuring env,database connection and migration,wenbhook handlers
 func main() {
 	cfg, err := config.Load()
@@ -29,12 +33,15 @@ func main() {
 		slog.Error("database connection failed", "error", err)
 		os.Exit(1)
 	}
-	defer db.Close()
+	defer db.Close() //nolint:errcheck
 
 	if err := database.Migrate(db); err != nil {
 		slog.Error("migration failed", "error", err)
 		os.Exit(1)
 	}
+
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer cancel()
 
 	holdStore := hold.NewStore(db)
 	holdHandler := hold.NewHandler(holdStore, cfg.HoldMaxTTLS)
@@ -42,11 +49,19 @@ func main() {
 	// start stabilizer worker (background)
 	lag := stabilizer.NewLagEstimator()
 	payuClient := payu.NewClient(cfg.PayuStatusURL, cfg.GatewayAPIKey)
-	go stabilizer.Run(context.Background(), db, cfg, lag, func(g string) gateway.GatewayClient {
+	go stabilizer.Run(ctx, db, cfg, lag, func(g string) gateway.GatewayClient {
 		if g == "payu" {
 			return payuClient
 		}
 		return nil
+	})
+
+	// start delivery worker (background)
+	go delivery.Run(ctx, db, delivery.Config{
+		CallbackSecret:    cfg.MerchantCallbackSecret,
+		AllowInsecure:     cfg.DeliveryAllowInsecure,
+		TimeoutS:          cfg.DeliveryTimeoutS,
+		WorkerConcurrency: cfg.DeliveryConcurrency,
 	})
 
 	mux := http.NewServeMux()
@@ -70,6 +85,7 @@ func main() {
 		os.Exit(1)
 	}
 }
+
 //checks for valid API key in Authorisation header
 func authMiddleware(apiKey string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -81,6 +97,7 @@ func authMiddleware(apiKey string, next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
+
 //maps logs from local to global slog lvl(for centalised slog error maintainance)
 func setupLogger(level string) {
 	var l slog.Level
