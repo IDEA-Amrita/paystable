@@ -1,51 +1,50 @@
-import { useState, useEffect } from 'react'
-import { Search, SearchX } from 'lucide-react'
-import DataTable from '../../components/shared/DataTable'
+import { useState, useRef } from 'react'
+import { Search } from 'lucide-react'
 import StatusBadge from '../../components/shared/StatusBadge'
 import TimelineDrawer from './TimelineDrawer'
 import { api } from '../../lib/api'
-import { cn, formatCurrency, formatRelativeTime, formatDuration, truncate } from '../../lib/utils'
+import { cn, formatCurrency, formatRelativeTime, formatDuration, truncate, statusLabel, statusMeaning } from '../../lib/utils'
 
-const STATUSES = ['all', 'PENDING', 'VERIFYING', 'CONFIRMED', 'FAILED', 'INDETERMINATE', 'REFUNDED']
-
-const STATUS_CHIP_COLORS = {
-  all:           { active: 'border-text-secondary text-text-primary', inactive: '' },
-  PENDING:       { active: 'border-neon-yellow/60 text-neon-yellow bg-neon-yellow/5', inactive: '' },
-  VERIFYING:     { active: 'border-neon-blue/60 text-neon-blue bg-neon-blue/5', inactive: '' },
-  CONFIRMED:     { active: 'border-neon-green/60 text-neon-green bg-neon-green/5', inactive: '' },
-  FAILED:        { active: 'border-neon-red/60 text-neon-red bg-neon-red/5', inactive: '' },
-  INDETERMINATE: { active: 'border-neon-purple/60 text-neon-purple bg-neon-purple/5', inactive: '' },
-  REFUNDED:      { active: 'border-neon-cyan/60 text-neon-cyan bg-neon-cyan/5', inactive: '' },
+const STATUS_COLORS = {
+  all:           'text-text-secondary',
+  PENDING:       'text-status-yellow',
+  VERIFYING:     'text-status-blue',
+  CONFIRMED:     'text-status-green',
+  FAILED:        'text-status-red',
+  INDETERMINATE: 'text-status-purple',
+  REFUNDED:      'text-status-cyan',
 }
 
-const GATEWAY_COLORS = {
-  PayU:      'bg-neon-yellow',
-  Razorpay:  'bg-neon-blue',
-  Cashfree:  'bg-neon-cyan',
-  PhonePe:   'bg-neon-purple',
+const GATEWAY_DOT = {
+  PayU:     'bg-status-yellow',
+  Razorpay: 'bg-status-blue',
+  Cashfree: 'bg-status-cyan',
+  PhonePe:  'bg-status-purple',
 }
 
 export default function Transactions() {
+  const [query, setQuery]               = useState('')
+  const [submitted, setSubmitted]       = useState(false)
   const [transactions, setTransactions] = useState([])
-  const [statusCounts, setStatusCounts] = useState({})
-  const [total, setTotal] = useState(0)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
-  const [search, setSearch] = useState('')
+  const [total, setTotal]               = useState(0)
+  const [loading, setLoading]           = useState(false)
+  const [error, setError]               = useState(null)
   const [statusFilter, setStatusFilter] = useState('all')
-  const [page, setPage] = useState(1)
-  const [drawerOpen, setDrawerOpen] = useState(false)
-  const [selectedTxn, setSelectedTxn] = useState(null)
-  const [loadingDetail, setLoadingDetail] = useState(false)
+  const [statusCounts, setStatusCounts] = useState({})
+  const [page, setPage]                 = useState(1)
+  const [drawerOpen, setDrawerOpen]     = useState(false)
+  const [selectedTxn, setSelectedTxn]   = useState(null)
+  const inputRef = useRef(null)
 
-  const fetchTransactions = async () => {
+  const search = async (q = query, sf = statusFilter, p = 1) => {
     setLoading(true)
     setError(null)
+    setSubmitted(true)
     try {
       const result = await api.getTransactions({
-        status: statusFilter === 'all' ? undefined : statusFilter,
-        search: search || undefined,
-        page,
+        search: q || undefined,
+        status: sf === 'all' ? undefined : sf,
+        page: p,
         limit: 25,
       })
       setTransactions(result.data)
@@ -58,203 +57,161 @@ export default function Transactions() {
     }
   }
 
-  useEffect(() => {
-    fetchTransactions()
-  }, [statusFilter, page])
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') { setPage(1); search(query, statusFilter, 1) }
+  }
 
-  // Debounced search
-  useEffect(() => {
-    const timeout = setTimeout(() => {
-      setPage(1)
-      fetchTransactions()
-    }, 300)
-    return () => clearTimeout(timeout)
-  }, [search])
+  const handleFilterClick = (sf) => {
+    setStatusFilter(sf)
+    if (submitted) { setPage(1); search(query, sf, 1) }
+  }
 
   const handleRowClick = async (row) => {
     setDrawerOpen(true)
-    setLoadingDetail(true)
+    setSelectedTxn(null)
     try {
       const detail = await api.getTransaction(row.txn_id)
       setSelectedTxn(detail)
     } catch (err) {
-      console.error('Failed to load transaction:', err)
-    } finally {
-      setLoadingDetail(false)
+      console.error(err)
     }
   }
 
-  const columns = [
-    {
-      key: 'txn_id',
-      label: 'TXN ID',
-      sortable: true,
-      mono: true,
-      render: (val) => (
-        <span className="font-mono text-sm" title={val}>
-          {truncate(val, 14)}
-        </span>
-      ),
-    },
-    {
-      key: 'gateway',
-      label: 'Gateway',
-      sortable: true,
-      render: (val) => (
-        <span className="flex items-center gap-2 text-sm">
-          <span className={cn('h-2 w-2 rounded-full', GATEWAY_COLORS[val] || 'bg-text-muted')} />
-          {val}
-        </span>
-      ),
-    },
-    {
-      key: 'status',
-      label: 'Status',
-      sortable: true,
-      render: (val) => <StatusBadge status={val} />,
-    },
-    {
-      key: 'amount',
-      label: 'Amount',
-      sortable: true,
-      align: 'right',
-      render: (val) => (
-        <span className="font-mono tabular-nums">{formatCurrency(val)}</span>
-      ),
-    },
-    {
-      key: 'created_at',
-      label: 'Created',
-      sortable: true,
-      render: (val) => (
-        <span className="text-xs text-text-secondary" title={val}>
-          {formatRelativeTime(val)}
-        </span>
-      ),
-    },
-    {
-      key: 'resolve_duration_ms',
-      label: 'Time to Resolve',
-      sortable: true,
-      align: 'right',
-      render: (val) => {
-        if (val == null) return <span className="text-xs text-text-muted">—</span>
-        const isLong = val > 300000 // > 5 min
-        return (
-          <span className={cn('font-mono text-xs tabular-nums', isLong ? 'text-neon-red' : 'text-text-secondary')}>
-            {formatDuration(val)}
-          </span>
-        )
-      },
-    },
-  ]
-
   const totalPages = Math.ceil(total / 25)
+  const statuses = ['all', 'PENDING', 'VERIFYING', 'CONFIRMED', 'FAILED', 'INDETERMINATE', 'REFUNDED']
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-xl font-semibold text-text-primary tracking-tight">Transactions</h1>
+    <div className="space-y-4">
 
-      {/* Search + Filter Bar */}
-      <div className="space-y-3">
-        <div className="relative">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
-          <input
-            type="text"
-            placeholder="Search by txn_id, gateway, amount..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full bg-bg-muted border border-bg-border rounded-lg pl-10 pr-4 py-2.5
-                       text-sm text-text-primary placeholder:text-text-muted
-                       focus:outline-none focus:ring-2 focus:ring-neon-green/30 focus:border-neon-green/40
-                       transition-all duration-150"
-          />
-        </div>
+      {/* Page context for first-timers */}
+      <p className="text-sm text-text-muted">Look up any payment and see exactly what happened to it.</p>
 
-        <div className="flex gap-2 flex-wrap">
-          {STATUSES.map((status) => {
-            const isActive = statusFilter === status
-            const count = status === 'all' ? total : (statusCounts[status] || 0)
-            const chipColors = STATUS_CHIP_COLORS[status]
-
-            return (
-              <button
-                key={status}
-                onClick={() => { setStatusFilter(status); setPage(1) }}
-                className={cn(
-                  'px-3 py-1.5 rounded-full text-xs font-medium font-mono border',
-                  'transition-all duration-150',
-                  isActive
-                    ? chipColors.active
-                    : 'bg-bg-muted text-text-secondary border-bg-border hover:border-text-muted hover:text-text-primary'
-                )}
-              >
-                {status === 'all' ? 'All' : status}
-                <span className="ml-1.5 text-text-muted">({count})</span>
-              </button>
-            )
-          })}
-        </div>
+      {/* Search — the front door */}
+      <div className="relative">
+        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
+        <input
+          ref={inputRef}
+          autoFocus
+          type="text"
+          placeholder="Paste a payment ID, or search by gateway / amount — press Enter"
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          onKeyDown={handleKeyDown}
+          className="w-full bg-bg-surface border border-bg-border rounded-xl pl-9 pr-4 py-3
+                     text-sm text-text-primary placeholder:text-text-muted
+                     focus:outline-none focus:border-bg-border"
+        />
       </div>
 
-      {/* Error state */}
-      {error && (
-        <div className="text-sm text-neon-red bg-neon-red/5 border border-neon-red/20 rounded-lg px-4 py-3">
-          Error: {error}
+      {/* Status filter chips — only visible after first search */}
+      {submitted && (
+        <div className="flex gap-2 flex-wrap">
+          {statuses.map(s => (
+            <button
+              key={s}
+              onClick={() => handleFilterClick(s)}
+              title={s === 'all' ? '' : statusMeaning(s)}
+              className={cn(
+                'px-3 py-1 rounded-full text-xs border transition-colors',
+                statusFilter === s
+                  ? cn('border-bg-border bg-bg-elevated', STATUS_COLORS[s])
+                  : 'border-transparent text-text-muted hover:text-text-secondary'
+              )}
+            >
+              {s === 'all' ? 'All' : statusLabel(s)}
+              {s === 'all'
+                ? <span className="ml-1 text-text-muted">({total})</span>
+                : statusCounts[s] > 0 && <span className="ml-1 text-text-muted">({statusCounts[s]})</span>
+              }
+            </button>
+          ))}
         </div>
       )}
 
-      {/* Transactions Table */}
-      <div className="bg-bg-surface border border-bg-border rounded-xl shadow-card overflow-hidden">
-        <DataTable
-          columns={columns}
-          data={transactions}
-          loading={loading}
-          onRowClick={handleRowClick}
-          selectedId={selectedTxn?.txn_id}
-          emptyMessage="No transactions match your filters. Try widening the date range or clearing status filters."
-          emptyIcon={SearchX}
-        />
+      {/* Empty state before any search */}
+      {!submitted && (
+        <div className="text-center py-20 text-text-muted">
+          <Search size={32} className="mx-auto mb-3 opacity-30" />
+          <p className="text-sm">Enter a txn_id or filter to look up transactions.</p>
+        </div>
+      )}
 
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between px-4 py-3 border-t border-bg-border">
-            <span className="text-xs text-text-secondary">
-              Page {page} of {totalPages} · {total} total
-            </span>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setPage(p => Math.max(1, p - 1))}
-                disabled={page <= 1}
-                className={cn(
-                  'px-3 py-1.5 text-xs font-medium rounded-lg border',
-                  'transition-all duration-150',
-                  page <= 1
-                    ? 'text-text-muted border-bg-border cursor-not-allowed'
-                    : 'text-text-secondary border-bg-border hover:text-text-primary hover:border-text-muted'
-                )}
-              >
-                Previous
-              </button>
-              <button
-                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                disabled={page >= totalPages}
-                className={cn(
-                  'px-3 py-1.5 text-xs font-medium rounded-lg border',
-                  'transition-all duration-150',
-                  page >= totalPages
-                    ? 'text-text-muted border-bg-border cursor-not-allowed'
-                    : 'text-text-secondary border-bg-border hover:text-text-primary hover:border-text-muted'
-                )}
-              >
-                Next
-              </button>
+      {/* Error */}
+      {error && (
+        <div className="text-sm text-status-red bg-bg-surface border border-status-red/20 rounded-xl px-4 py-3">
+          {error}
+        </div>
+      )}
+
+      {/* Results */}
+      {submitted && !error && (
+        <div className="bg-bg-surface border border-bg-border rounded-xl overflow-hidden">
+          {loading ? (
+            <div className="space-y-0">
+              {[1,2,3,4,5].map(i => (
+                <div key={i} className="h-12 border-b border-bg-border animate-pulse bg-bg-elevated last:border-0" />
+              ))}
             </div>
-          </div>
-        )}
-      </div>
+          ) : transactions.length === 0 ? (
+            <div className="text-center py-12 text-text-muted">
+              <p className="text-sm">No transactions found.</p>
+            </div>
+          ) : (
+            <>
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-bg-border">
+                    {['TXN ID', 'Gateway', 'Status', 'Amount', 'Created', 'Resolved in'].map(h => (
+                      <th key={h} className="text-left text-xs text-text-muted px-4 py-2.5 font-normal">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {transactions.map(row => (
+                    <tr
+                      key={row.txn_id}
+                      onClick={() => handleRowClick(row)}
+                      className="border-b border-bg-border last:border-0 hover:bg-bg-elevated cursor-pointer transition-colors"
+                    >
+                      <td className="px-4 py-3 text-xs font-mono text-text-primary">{truncate(row.txn_id, 16)}</td>
+                      <td className="px-4 py-3">
+                        <span className="flex items-center gap-1.5 text-xs text-text-secondary">
+                          <span className={cn('h-1.5 w-1.5 rounded-full', GATEWAY_DOT[row.gateway] || 'bg-text-muted')} />
+                          {row.gateway}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3"><StatusBadge status={row.status} /></td>
+                      <td className="px-4 py-3 text-xs font-mono text-text-primary">{formatCurrency(row.amount)}</td>
+                      <td className="px-4 py-3 text-xs text-text-muted">{formatRelativeTime(row.created_at)}</td>
+                      <td className="px-4 py-3 text-xs font-mono text-text-muted">
+                        {row.resolve_duration_ms != null ? formatDuration(row.resolve_duration_ms) : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between px-4 py-3 border-t border-bg-border">
+                  <span className="text-xs text-text-muted">Page {page} of {totalPages} · {total} total</span>
+                  <div className="flex gap-2">
+                    <button onClick={() => { const p = Math.max(1, page-1); setPage(p); search(query, statusFilter, p) }}
+                      disabled={page <= 1}
+                      className="text-xs px-3 py-1.5 border border-bg-border rounded text-text-secondary disabled:opacity-30 hover:text-text-primary transition-colors">
+                      Previous
+                    </button>
+                    <button onClick={() => { const p = Math.min(totalPages, page+1); setPage(p); search(query, statusFilter, p) }}
+                      disabled={page >= totalPages}
+                      className="text-xs px-3 py-1.5 border border-bg-border rounded text-text-secondary disabled:opacity-30 hover:text-text-primary transition-colors">
+                      Next
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
-      {/* Timeline Drawer */}
       <TimelineDrawer
         open={drawerOpen}
         onClose={() => { setDrawerOpen(false); setSelectedTxn(null) }}

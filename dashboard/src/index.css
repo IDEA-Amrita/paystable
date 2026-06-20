@@ -1,35 +1,25 @@
 @import "tailwindcss";
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 @theme {
-  --color-bg-base: #030712;
-  --color-bg-surface: #0d1117;
-  --color-bg-elevated: #161b22;
-  --color-bg-border: #21262d;
-  --color-bg-muted: #1c2128;
+  --color-bg-base:     #0f0f0f;
+  --color-bg-surface:  #1f1f1f;
+  --color-bg-elevated: #272727;
+  --color-bg-border:   #3f3f3f;
+  --color-bg-muted:    #2a2a2a;
 
-  --color-neon-green: #22d3a5;
-  --color-neon-red: #f43f5e;
-  --color-neon-yellow: #f59e0b;
-  --color-neon-blue: #60a5fa;
-  --color-neon-purple: #a78bfa;
-  --color-neon-cyan: #22d3ee;
-  --color-neon-orange: #fb923c;
+  --color-text-primary:   #f1f1f1;
+  --color-text-secondary: #aaaaaa;
+  --color-text-muted:     #717171;
 
-  --color-text-primary: #e6edf3;
-  --color-text-secondary: #8b949e;
-  --color-text-muted: #484f58;
-  --color-text-inverse: #030712;
+  --color-status-green:  #22c55e;
+  --color-status-red:    #ef4444;
+  --color-status-yellow: #eab308;
+  --color-status-blue:   #3b82f6;
+  --color-status-purple: #a855f7;
+  --color-status-cyan:   #06b6d4;
 
-  --color-accent-brand: #22d3a5;
-  --color-accent-glow: rgba(34, 211, 165, 0.15);
-
-  --font-family-sans: 'Inter', system-ui, sans-serif;
-  --font-family-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
-
-  --shadow-card: 0 0 0 1px #21262d;
-  --shadow-drawer: -8px 0 32px rgba(0,0,0,0.6);
-  --shadow-glow: 0 0 20px rgba(34,211,165,0.08);
+  --font-family-sans: 'Roboto', system-ui, sans-serif;
+  --font-family-mono: 'Roboto Mono', ui-monospace, monospace;
 }
 
 @layer base {
@@ -40,41 +30,11 @@
     color: var(--color-text-primary);
     font-family: var(--font-family-sans);
     -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    font-feature-settings: "rlig" 1, "calt" 1;
     margin: 0;
     padding: 0;
   }
 
   ::-webkit-scrollbar { width: 6px; height: 6px; }
-  ::-webkit-scrollbar-track { background: var(--color-bg-base); }
+  ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: var(--color-bg-border); border-radius: 9999px; }
-  ::-webkit-scrollbar-thumb:hover { background: var(--color-text-muted); }
-
-  ::selection {
-    background: rgba(34, 211, 165, 0.2);
-    color: var(--color-text-primary);
-  }
-}
-
-@layer utilities {
-  .font-mono-nums {
-    font-variant-numeric: tabular-nums;
-    font-family: var(--font-family-mono);
-  }
-}
-
-@keyframes slide-in-from-top {
-  from {
-    opacity: 0;
-    transform: translateY(-12px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.animate-slide-in {
-  animation: slide-in-from-top 300ms ease-out;
 }

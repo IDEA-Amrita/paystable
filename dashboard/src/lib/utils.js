@@ -53,6 +53,34 @@ export function cn(...classes) {
   return classes.filter(Boolean).join(' ')
 }
 
+// Two-layer vocabulary: plain label for the surface, raw enum stays available
+// underneath for developers debugging against logs and the schema.
+const STATUS_LABELS = {
+  PENDING:       'Started',
+  VERIFYING:     'Checking',
+  CONFIRMED:     'Paid',
+  FAILED:        'Failed',
+  INDETERMINATE: 'Needs attention',
+  REFUNDED:      'Refunded',
+}
+
+const STATUS_MEANINGS = {
+  PENDING:       'Customer started checkout. No result yet.',
+  VERIFYING:     'Confirming with the bank before we trust the result.',
+  CONFIRMED:     'Payment went through. The customer was charged.',
+  FAILED:        'Payment did not go through. Safe to let the customer retry.',
+  INDETERMINATE: 'Something looked wrong (often a mismatched amount). A human should check this.',
+  REFUNDED:      'Payment was reversed.',
+}
+
+export function statusLabel(status) {
+  return STATUS_LABELS[status] || status
+}
+
+export function statusMeaning(status) {
+  return STATUS_MEANINGS[status] || ''
+}
+
 export function truncate(str, len = 12) {
   if (!str) return ''
   if (str.length <= len) return str

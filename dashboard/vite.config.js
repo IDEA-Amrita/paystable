@@ -11,9 +11,9 @@ export default defineConfig({
     sourcemap: false,
     rollupOptions: {
       output: {
-        manualChunks: {
-          vendor: ['react', 'react-dom', 'react-router-dom'],
-          charts: ['recharts'],
+        manualChunks(id) {
+          if (id.includes('recharts') || id.includes('d3-')) return 'charts'
+          if (id.includes('node_modules')) return 'vendor'
         }
       }
     }
