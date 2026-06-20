@@ -1,0 +1,74 @@
+export function formatCurrency(paise) {
+  const rupees = paise / 100
+  return `₹${rupees.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
+export function formatRelativeTime(isoString) {
+  const date = new Date(isoString)
+  const now = new Date()
+  const diffMs = now - date
+  const diffSec = Math.floor(diffMs / 1000)
+  const diffMin = Math.floor(diffSec / 60)
+  const diffHr = Math.floor(diffMin / 60)
+  const diffDays = Math.floor(diffHr / 24)
+
+  if (diffSec < 10) return 'just now'
+  if (diffSec < 60) return `${diffSec}s ago`
+  if (diffMin < 60) return `${diffMin} min ago`
+  if (diffHr < 24) return `${diffHr}h ago`
+  if (diffDays < 7) return `${diffDays}d ago`
+  return date.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' })
+}
+
+export function formatDuration(ms) {
+  if (ms < 0) ms = 0
+  const totalSec = Math.floor(ms / 1000)
+  const hours = Math.floor(totalSec / 3600)
+  const minutes = Math.floor((totalSec % 3600) / 60)
+  const seconds = totalSec % 60
+
+  if (hours > 0) return `${hours}h ${minutes}m`
+  if (minutes > 0) return `${minutes}m ${seconds}s`
+  return `${seconds}s`
+}
+
+export function formatTimestamp(isoString, mode = 'time') {
+  const date = new Date(isoString)
+  if (mode === 'time') {
+    return date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+  }
+  return date.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' }) +
+    ' at ' +
+    date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false })
+}
+
+export function formatDate(isoString) {
+  const date = new Date(isoString)
+  return date.toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' }) +
+    ' at ' +
+    date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false })
+}
+
+export function cn(...classes) {
+  return classes.filter(Boolean).join(' ')
+}
+
+export function truncate(str, len = 12) {
+  if (!str) return ''
+  if (str.length <= len) return str
+  return str.slice(0, len) + '…'
+}
+
+export function downloadCSV(headers, rows, filename) {
+  const csvContent = [
+    headers.join(','),
+    ...rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+  ].join('\n')
+
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+  const link = document.createElement('a')
+  link.href = URL.createObjectURL(blob)
+  link.download = filename
+  link.click()
+  URL.revokeObjectURL(link.href)
+}
