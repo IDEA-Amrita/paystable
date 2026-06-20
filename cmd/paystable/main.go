@@ -56,6 +56,16 @@ func main() {
 		return nil
 	})
 
+	// start hold expiry scanner (background)
+	// fires every 30 s, makes one final gateway call for any hold whose TTL
+	// has expired without the stabilizer reaching a terminal state first.
+	go hold.StartExpiryScanner(ctx, db, func(g string) gateway.GatewayClient {
+		if g == "payu" {
+			return payuClient
+		}
+		return nil
+	})
+
 	// start delivery worker (background)
 	go delivery.Run(ctx, db, delivery.Config{
 		CallbackSecret:    cfg.MerchantCallbackSecret,

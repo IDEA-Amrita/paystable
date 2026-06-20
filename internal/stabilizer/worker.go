@@ -281,7 +281,7 @@ func markHoldExhausted(ctx context.Context, db *sql.DB, txnID, reason string) er
 		return err
 	}
 	// If already finalized, do nothing — another path got there first.
-	if fromStatus.Valid && (fromStatus.String == "CONFIRMED" || fromStatus.String == "FAILED" || fromStatus.String == "REFUNDED") {
+	if fromStatus.Valid && (fromStatus.String == "CONFIRMED" || fromStatus.String == "FAILED" || fromStatus.String == "REFUNDED" || fromStatus.String == "INDETERMINATE") {
 		return tx.Commit()
 	}
 
@@ -391,7 +391,7 @@ func finalizeHold(ctx context.Context, db *sql.DB, txnID string) error {
 		return err
 	}
 	// If already finalized, do nothing — idempotent.
-	if fromStatus.Valid && (fromStatus.String == "CONFIRMED" || fromStatus.String == "FAILED" || fromStatus.String == "REFUNDED") {
+	if fromStatus.Valid && (fromStatus.String == "CONFIRMED" || fromStatus.String == "FAILED" || fromStatus.String == "REFUNDED" || fromStatus.String == "INDETERMINATE") {
 		return tx.Commit()
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE holds SET status='CONFIRMED' WHERE txn_id=$1`, txnID); err != nil {
