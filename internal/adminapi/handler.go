@@ -33,6 +33,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/admin/deliveries/stats", g(http.HandlerFunc(h.deliveryStats)))
 	mux.Handle("POST /api/v1/admin/deliveries/{id}/replay", g(http.HandlerFunc(h.replayDelivery)))
 	mux.Handle("GET /api/v1/admin/config", g(http.HandlerFunc(h.config)))
+	mux.Handle("POST /api/v1/admin/config", g(http.HandlerFunc(h.updateConfig)))
 	mux.Handle("GET /api/v1/admin/config/rotation-status", g(http.HandlerFunc(h.rotationStatus)))
 	mux.Handle("POST /api/v1/admin/config/rotate-secret", g(http.HandlerFunc(h.rotateSecret)))
 	mux.Handle("GET /api/v1/admin/export/ledger", g(http.HandlerFunc(h.ExportLedger)))
