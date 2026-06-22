@@ -1,9 +1,11 @@
 package config
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 )
 
 type Config struct {
@@ -28,6 +30,8 @@ type Config struct {
 //3)HoldMaxTTLS:What: is the absolute lifetime (seconds) of a hold from creation → expires_at(default 900)
 //so when it checking reaches with MaxBackoffS it doesnt expand from there rather maintain there itself.But when cumSum of time taken exceeds HoldMaxTTLS,the checking break.from there it will see last N transactions(StabilizationN) n based on thatitss say whether success or failure
 func Load() (*Config, error) {
+	loadDotEnv()
+
 	c := &Config{
 		Port:           envOr("PORT", "8080"),
 		StabilizationN: envIntOr("STABILIZATION_N", 3),
@@ -58,6 +62,35 @@ func Load() (*Config, error) {
 	}
 
 	return c, nil
+}
+
+func loadDotEnv() {
+	file, err := os.Open(".env")
+	if err != nil {
+		return // Ignore if .env doesn't exist
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := strings.TrimSpace(parts[0])
+		val := strings.TrimSpace(parts[1])
+		if (strings.HasPrefix(val, "\"") && strings.HasSuffix(val, "\"")) ||
+			(strings.HasPrefix(val, "'") && strings.HasSuffix(val, "'")) {
+			val = val[1 : len(val)-1]
+		}
+		if os.Getenv(key) == "" {
+			os.Setenv(key, val)
+		}
+	}
 }
 
 func envOr(key, fallback string) string {
