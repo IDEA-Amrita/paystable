@@ -7,18 +7,25 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+
+	"github.com/IDEA-Amrita/paystable/internal/adminapi"
 	"github.com/IDEA-Amrita/paystable/internal/config"
 	"github.com/IDEA-Amrita/paystable/internal/database"
 	"github.com/IDEA-Amrita/paystable/internal/delivery"
 	"github.com/IDEA-Amrita/paystable/internal/gateway"
 	"github.com/IDEA-Amrita/paystable/internal/gateway/payu"
 	"github.com/IDEA-Amrita/paystable/internal/hold"
+	"github.com/IDEA-Amrita/paystable/internal/sse"
 	"github.com/IDEA-Amrita/paystable/internal/stabilizer"
+	"github.com/IDEA-Amrita/paystable/internal/ui"
 	"github.com/IDEA-Amrita/paystable/internal/webhook"
 )
 
-//configuring env,database connection and migration,wenbhook handlers
+var Version = "dev"
+
 func main() {
 	cfg, err := config.Load()
 	if err != nil {
@@ -44,29 +51,19 @@ func main() {
 	defer cancel()
 
 	holdStore := hold.NewStore(db)
-	holdHandler := hold.NewHandler(holdStore, cfg.HoldMaxTTLS)
+	holdHandler := hold.NewHandler(holdStore, cfg.HoldMaxTTLS, cfg.AdminAPIKey)
 
-	// start stabilizer worker (background)
 	lag := stabilizer.NewLagEstimator()
 	payuClient := payu.NewClient(cfg.PayuStatusURL, cfg.GatewayAPIKey)
-	go stabilizer.Run(ctx, db, cfg, lag, func(g string) gateway.GatewayClient {
+	gatewayFactory := func(g string) gateway.GatewayClient {
 		if g == "payu" {
 			return payuClient
 		}
 		return nil
-	})
+	}
 
-	// start hold expiry scanner (background)
-	// fires every 30 s, makes one final gateway call for any hold whose TTL
-	// has expired without the stabilizer reaching a terminal state first.
-	go hold.StartExpiryScanner(ctx, db, func(g string) gateway.GatewayClient {
-		if g == "payu" {
-			return payuClient
-		}
-		return nil
-	})
-
-	// start delivery worker (background)
+	go stabilizer.Run(ctx, db, cfg, lag, gatewayFactory)
+	go hold.StartExpiryScanner(ctx, db, gatewayFactory)
 	go delivery.Run(ctx, db, delivery.Config{
 		CallbackSecret:    cfg.MerchantCallbackSecret,
 		AllowInsecure:     cfg.DeliveryAllowInsecure,
@@ -76,27 +73,50 @@ func main() {
 
 	mux := http.NewServeMux()
 
-	//public endpoints
-	//1)hmac verification n stores gateway signals in db
+	// ── Public endpoints ──────────────────────────────────────────────
 	mux.Handle("POST /webhooks/{gateway}", webhook.NewHandler(db, cfg.WebhookSecret))
-	//2)returns hold transaction state n timeStamp
 	mux.HandleFunc("GET /api/v1/transactions/{txn_id}/status", holdHandler.HandleStatus)
-	//3)health check n state if current process is active or not
+	mux.HandleFunc("GET /api/v1/transactions/{txn_id}/stream", sse.NewHandler(db).ServeHTTP)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("ok"))
 	})
-	//authenticated endpoints
-	//4)admin can create hold transaction with this endpoint
+	mux.Handle("GET /metrics", promhttp.Handler())
+
+	// ── Authenticated merchant endpoints ─────────────────────────────
 	mux.Handle("POST /api/v1/hold", authMiddleware(cfg.AdminAPIKey, http.HandlerFunc(holdHandler.HandleCreate)))
 
-	slog.Info("paystable starting", "port", cfg.Port)
-	if err := http.ListenAndServe(":"+cfg.Port, mux); err != nil {
-		slog.Error("server error", "error", err)
-		os.Exit(1)
+	// ── Admin API (localhost-only, all routes registered inside) ──────
+	adminHandler := adminapi.New(db, cfg)
+	adminHandler.Register(mux)
+
+	// ── Ops dashboard SPA (localhost-only, embedded in binary) ────────
+	ui.Register(mux)
+
+	srv := &http.Server{
+		Addr:    ":" + cfg.Port,
+		Handler: mux,
 	}
+
+	go func() {
+		slog.Info("paystable starting", "version", Version, "port", cfg.Port)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			slog.Error("server error", "error", err)
+			os.Exit(1)
+		}
+	}()
+
+	// Wait for shutdown signal
+	<-ctx.Done()
+	slog.Info("shutdown signal received, draining (30s max)")
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer shutdownCancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		slog.Error("server shutdown error", "error", err)
+	}
+	slog.Info("paystable stopped")
 }
 
-//checks for valid API key in Authorisation header
 func authMiddleware(apiKey string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := r.Header.Get("Authorization")
@@ -108,7 +128,6 @@ func authMiddleware(apiKey string, next http.Handler) http.Handler {
 	})
 }
 
-//maps logs from local to global slog lvl(for centalised slog error maintainance)
 func setupLogger(level string) {
 	var l slog.Level
 	switch level {
