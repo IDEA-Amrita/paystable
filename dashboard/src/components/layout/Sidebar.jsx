@@ -1,11 +1,13 @@
 import { NavLink } from 'react-router-dom'
-import { Activity, ArrowLeftRight, Zap } from 'lucide-react'
+import { Activity, ArrowLeftRight, Zap, LayoutDashboard, Settings } from 'lucide-react'
 import { cn } from '../../lib/utils'
 
 const navItems = [
+  { to: '/overview',     label: 'Overview',      icon: LayoutDashboard },
   { to: '/health',       label: 'Health',        icon: Activity },
   { to: '/transactions', label: 'Transactions',  icon: ArrowLeftRight },
   { to: '/mismatches',   label: 'Mismatches',    icon: Zap },
+  { to: '/config',       label: 'Config',        icon: Settings },
 ]
 
 export default function Sidebar() {
