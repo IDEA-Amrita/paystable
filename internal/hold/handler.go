@@ -38,10 +38,11 @@ type Handler struct {
 	store      *Store
 	maxTTL     int
 	defaultTTL int
+	apiKey     string
 }
 
-func NewHandler(store *Store, maxTTL int) *Handler {
-	return &Handler{store: store, maxTTL: maxTTL, defaultTTL: 300}
+func NewHandler(store *Store, maxTTL int, apiKey string) *Handler {
+	return &Handler{store: store, maxTTL: maxTTL, defaultTTL: 300, apiKey: apiKey}
 }
 //1)HandleCreate: validates request n applies defaults, creates hold via store, returns hold details with read token
 func (h *Handler) HandleCreate(w http.ResponseWriter, r *http.Request) {
@@ -97,6 +98,28 @@ func (h *Handler) HandleStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if token == "" {
+		// Allow access via Bearer admin API key
+		auth := r.Header.Get("Authorization")
+		if h.apiKey != "" && auth == "Bearer "+h.apiKey {
+			// Admin access: look up by txn_id only
+			hold, err := h.store.GetByTxnID(txnID)
+			if err != nil {
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": "transaction not found"})
+				return
+			}
+			resp := StatusResponse{
+				TxnID:     hold.TxnID,
+				Status:    hold.Status,
+				Gateway:   hold.Gateway,
+				Amount:    hold.Amount,
+				Currency:  hold.Currency,
+				ExpiresAt: hold.ExpiresAt.Format("2006-01-02T15:04:05Z07:00"),
+				CreatedAt: hold.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+				UpdatedAt: hold.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+			}
+			writeJSON(w, http.StatusOK, resp)
+			return
+		}
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "missing token"})
 		return
 	}

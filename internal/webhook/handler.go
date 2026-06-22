@@ -8,8 +8,11 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
+	"time"
 
 	"github.com/IDEA-Amrita/paystable/internal/gateway/payu"
+	"github.com/IDEA-Amrita/paystable/internal/metrics"
 )
 
 type Handler struct {
@@ -43,8 +46,21 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if !h.verify(gateway, params) {
 		h.quarantine(gateway, "hmac_mismatch", r, body)
+		metrics.WebhookHMACFailures.Inc()
 		w.WriteHeader(http.StatusOK)
 		return
+	}
+
+	// Timestamp replay protection
+	if ts := params["timestamp"]; ts != "" {
+		if t, err := strconv.ParseInt(ts, 10, 64); err == nil {
+			age := time.Since(time.Unix(t, 0))
+			if age > 5*time.Minute {
+				h.quarantine(gateway, "replay_attack", r, body)
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+		}
 	}
 
 	if err := h.persist(gateway, params); err != nil {
@@ -75,7 +91,8 @@ func (h *Handler) persist(gateway string, params map[string]string) error {
 	_, err := h.db.Exec(`
 		INSERT INTO webhooks (txn_id, gateway, gateway_event_id, event_type, payload)
 		SELECT $1, $2, $3, $4, $5::jsonb
-		WHERE EXISTS (SELECT 1 FROM holds WHERE txn_id = $1)`,
+		WHERE EXISTS (SELECT 1 FROM holds WHERE txn_id = $1)
+		ON CONFLICT (gateway, gateway_event_id) DO NOTHING`,
 		txnID, gateway, gatewayEventID, eventType, payload)
 
 	if err != nil {

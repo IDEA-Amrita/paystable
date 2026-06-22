@@ -16,7 +16,7 @@ CREATE TABLE holds (
     created_at  timestamptz NOT NULL DEFAULT now(),
     updated_at  timestamptz NOT NULL DEFAULT now(),
 
-    CONSTRAINT chk_holds_status CHECK (status IN ('PENDING','VERIFYING','CONFIRMED','FAILED','REFUNDED','INDETERMINATE')),
+    CONSTRAINT chk_holds_status CHECK (status IN ('PENDING','VERIFYING','CONFIRMED','FAILED','REFUNDED','INDETERMINATE','MISMATCH')),
     CONSTRAINT chk_holds_amount_positive CHECK (amount > 0),
     CONSTRAINT chk_holds_ttl_range CHECK (ttl_seconds BETWEEN 30 AND 900)
 );
