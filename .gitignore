@@ -3,6 +3,7 @@
 
 # Environment
 .env
+.env.testkit
 
 # IDE
 .idea/
