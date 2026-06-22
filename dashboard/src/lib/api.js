@@ -1,7 +1,7 @@
 import { mockApi } from './mockData'
 
 const BASE = '/api/v1/admin'
-const USE_MOCKS = true // Set to false when Go server is running
+const USE_MOCKS = false // Set to false when Go server is running
 
 async function get(path, params = {}) {
   if (USE_MOCKS) {
@@ -76,4 +76,5 @@ export const api = {
   getConfig:            ()      => get('/config'),
   getRotationStatus:    ()      => get('/config/rotation-status'),
   rotateSecret:         (body)  => post('/config/rotate-secret', body),
+  updateConfig:         (body)  => post('/config', body),
 }
