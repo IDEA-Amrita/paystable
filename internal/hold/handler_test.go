@@ -9,7 +9,7 @@ import (
 )
 
 func TestHandleCreate_MissingFields(t *testing.T) {
-	h := NewHandler(nil, 900)
+	h := NewHandler(nil, 900, "test-api-key")
 
 	tests := []struct {
 		name string
@@ -36,7 +36,7 @@ func TestHandleCreate_MissingFields(t *testing.T) {
 }
 
 func TestHandleCreate_InvalidJSON(t *testing.T) {
-	h := NewHandler(nil, 900)
+	h := NewHandler(nil, 900, "test-api-key")
 
 	req := httptest.NewRequest("POST", "/api/v1/hold", strings.NewReader("not json"))
 	w := httptest.NewRecorder()
@@ -54,7 +54,7 @@ func TestHandleCreate_DefaultsApplied(t *testing.T) {
 }
 
 func TestHandleStatus_MissingToken(t *testing.T) {
-	h := NewHandler(nil, 900)
+	h := NewHandler(nil, 900, "test-api-key")
 
 	req := httptest.NewRequest("GET", "/api/v1/transactions/txn_123/status", nil)
 	req.SetPathValue("txn_id", "txn_123")

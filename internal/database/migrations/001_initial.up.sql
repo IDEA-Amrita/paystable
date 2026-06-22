@@ -16,7 +16,7 @@ CREATE TABLE holds (
     created_at  timestamptz NOT NULL DEFAULT now(),
     updated_at  timestamptz NOT NULL DEFAULT now(),
 
-    CONSTRAINT chk_holds_status CHECK (status IN ('PENDING','VERIFYING','CONFIRMED','FAILED','REFUNDED','INDETERMINATE')),
+    CONSTRAINT chk_holds_status CHECK (status IN ('PENDING','VERIFYING','CONFIRMED','FAILED','REFUNDED','INDETERMINATE','MISMATCH')),
     CONSTRAINT chk_holds_amount_positive CHECK (amount > 0),
     CONSTRAINT chk_holds_ttl_range CHECK (ttl_seconds BETWEEN 30 AND 900)
 );
@@ -28,7 +28,7 @@ CREATE INDEX idx_holds_gateway_status ON holds (gateway, status);
 --1.2)state transition enforcement trigger(prevents illegal transitions)
 CREATE OR REPLACE FUNCTION enforce_hold_transitions() RETURNS trigger AS $$
 BEGIN
-    IF OLD.status IN ('CONFIRMED', 'FAILED', 'REFUNDED') THEN
+    IF OLD.status IN ('CONFIRMED', 'FAILED', 'REFUNDED', 'INDETERMINATE') THEN
         IF NOT (OLD.status = 'CONFIRMED' AND NEW.status = 'REFUNDED') THEN
             RAISE EXCEPTION 'illegal transition from % to %', OLD.status, NEW.status;
         END IF;
@@ -44,24 +44,16 @@ CREATE TRIGGER trg_hold_transitions
     EXECUTE FUNCTION enforce_hold_transitions();
 
 --(2)
---2.1)webhooks: partitioned by month on received_at
+--2.1)webhooks: standard unpartitioned table
 CREATE TABLE webhooks (
-    id              bigint GENERATED ALWAYS AS IDENTITY,
+    id              bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     txn_id          text NOT NULL REFERENCES holds(txn_id),
     gateway         text NOT NULL,
     gateway_event_id text,
     event_type      text NOT NULL,
     payload         jsonb NOT NULL,
-    received_at     timestamptz NOT NULL DEFAULT now(),
-
-    PRIMARY KEY (id, received_at)
-) PARTITION BY RANGE (received_at);
-
---2.2)create initial partitions (current month and next month)
-CREATE TABLE webhooks_y2026m05 PARTITION OF webhooks
-    FOR VALUES FROM ('2026-05-01') TO ('2026-06-01');
-CREATE TABLE webhooks_y2026m06 PARTITION OF webhooks
-    FOR VALUES FROM ('2026-06-01') TO ('2026-07-01');
+    received_at     timestamptz NOT NULL DEFAULT now()
+);
 
 CREATE INDEX idx_webhooks_txn_id ON webhooks (txn_id);
 CREATE INDEX idx_webhooks_gateway_event_id ON webhooks (gateway, gateway_event_id);
