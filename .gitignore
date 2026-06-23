@@ -34,3 +34,6 @@ coverage.html
 docker-compose.override.yml
 
 node_modules/
+
+# Docs site
+/docs-site/

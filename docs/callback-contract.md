@@ -98,6 +98,9 @@ The key format is `evt_<txn_id>_<STATUS>`. Store it and reject duplicates.
 | `4xx` (not 429) | Permanent client error. | Stops retrying immediately. Marks `exhausted`. Ops alerted. |
 | `5xx`, `429`, timeout, connection refused | Transient. | Retries with exponential backoff. |
 
+> [!WARNING]
+> Review `400 Bad Request` responses from your application carefully. While Paystable treats 4xx codes as permanent errors to stop the retry loop, a `400` response could indicate that your application is rejecting the payload format (e.g. due to a schema validation or parsing mismatch). Check payload formats if you notice unexpected delivery exhaustions.
+
 Respond within **10 seconds**. A slow response counts as a timeout.
 
 ---

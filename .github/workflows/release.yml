@@ -25,7 +25,7 @@ jobs:
           mkdir -p dist
           for GOOS in linux darwin; do
             for GOARCH in amd64 arm64; do
-              OUT="dist/paystable_${GOOS}_${GOARCH}"
+              OUT="dist/paystable-${GOOS}-${GOARCH}"
               GOOS=$GOOS GOARCH=$GOARCH CGO_ENABLED=0 go build -ldflags="-s -w -X main.Version=${{ github.ref_name }}" -o "$OUT" ./cmd/paystable
               echo "Built $OUT"
             done
