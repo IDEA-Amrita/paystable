@@ -51,7 +51,9 @@ func (h *Handler) transactions(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	type txn struct {
 		TxnID             string    `json:"txn_id"`
@@ -79,7 +81,9 @@ func (h *Handler) transactions(w http.ResponseWriter, r *http.Request) {
 	statusCounts := map[string]int{}
 	scRows, err := h.db.QueryContext(ctx, "SELECT status, count(*) FROM holds GROUP BY status")
 	if err == nil {
-		defer scRows.Close()
+		defer func() {
+			_ = scRows.Close()
+		}()
 		for scRows.Next() {
 			var s string
 			var c int
@@ -158,7 +162,9 @@ func (h *Handler) buildTimeline(ctx context.Context, txnID string) []timelineEve
 	if err != nil {
 		return []timelineEvent{}
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	events := []timelineEvent{}
 	for rows.Next() {
@@ -195,7 +201,9 @@ func (h *Handler) buildPolls(ctx context.Context, txnID string) []poll {
 	if err != nil {
 		return []poll{}
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	polls := []poll{}
 	var prev *time.Time

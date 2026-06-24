@@ -57,7 +57,9 @@ func (c *Client) Status(ctx context.Context, txnID string) (string, int64, json.
 	if err != nil {
 		return "", 0, nil, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 	b, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", 0, nil, err

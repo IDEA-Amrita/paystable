@@ -29,7 +29,7 @@ func openWorkerTestDB(t *testing.T) *sql.DB {
 	if err := db.Ping(); err != nil {
 		t.Fatalf("db.Ping: %v", err)
 	}
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() { _ = db.Close() })
 	return db
 }
 
@@ -127,8 +127,11 @@ func outboxEventType(t *testing.T, db *sql.DB, txnID string) string {
 // ledgerEntries returns all ledger to_status values for a txn in order.
 func ledgerEntries(t *testing.T, db *sql.DB, txnID string) []string {
 	t.Helper()
-	rows, _ := db.Query("SELECT to_status FROM ledger WHERE txn_id=$1 ORDER BY created_at", txnID)
-	defer rows.Close()
+	rows, err := db.Query("SELECT to_status FROM ledger WHERE txn_id=$1 ORDER BY created_at", txnID)
+	if err != nil {
+		t.Fatalf("ledgerEntries query: %v", err)
+	}
+	defer func() { _ = rows.Close() }()
 	var out []string
 	for rows.Next() {
 		var s string

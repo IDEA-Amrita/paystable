@@ -104,7 +104,14 @@ func claimBatch(ctx context.Context, db *sql.DB) ([]outboxRow, error) {
 		}
 		batch = append(batch, r)
 	}
-	rows.Close()
+	if err := rows.Close(); err != nil {
+		_ = tx.Rollback()
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		_ = tx.Rollback()
+		return nil, err
+	}
 
 	if len(batch) == 0 {
 		_ = tx.Rollback()
@@ -168,7 +175,9 @@ func deliver(ctx context.Context, db *sql.DB, cfg Config, row outboxRow) {
 		rescheduleOrExhaust(ctx, db, row, 0, err.Error())
 		return
 	}
-	resp.Body.Close()
+	if err := resp.Body.Close(); err != nil {
+		slog.Warn("delivery: close response", "error", err, "id", row.ID)
+	}
 
 	code := resp.StatusCode
 

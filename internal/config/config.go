@@ -72,7 +72,9 @@ func loadDotEnv() {
 	if err != nil {
 		return // Ignore if .env doesn't exist
 	}
-	defer file.Close()
+	defer func() {
+		_ = file.Close()
+	}()
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -91,7 +93,9 @@ func loadDotEnv() {
 			val = val[1 : len(val)-1]
 		}
 		if os.Getenv(key) == "" {
-			os.Setenv(key, val)
+			if err := os.Setenv(key, val); err != nil {
+				continue
+			}
 		}
 	}
 }

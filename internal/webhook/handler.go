@@ -113,7 +113,9 @@ func (h *Handler) activeSecrets(ctx context.Context, gateway string) []string {
 		slog.Error("load active gateway secrets failed", "error", err, "gateway", gateway)
 		return nil
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var out []string
 	for rows.Next() {

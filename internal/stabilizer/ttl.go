@@ -56,7 +56,9 @@ func claimExpiredHolds(ctx context.Context, db *sql.DB) ([]expiredHold, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var out []expiredHold
 	for rows.Next() {

@@ -29,7 +29,9 @@ func (h *Handler) ExportLedger(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	type entry struct {
 		TxnID      string    `json:"txn_id"`

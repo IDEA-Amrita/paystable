@@ -1,33 +1,29 @@
 package config
 
-import (
-	"os"
-	"testing"
-)
+import "testing"
 
-func setRequiredEnvs() {
-	os.Setenv("DATABASE_URL", "postgres://localhost:5432/paystable")
-	os.Setenv("GATEWAY", "payu")
-	os.Setenv("WEBHOOK_SECRET", "secret")
-	os.Setenv("GATEWAY_API_KEY", "gateway_key")
-	os.Setenv("PAYU_STATUS_URL", "https://info.payu.in/merchant/postservice")
-	os.Setenv("MERCHANT_CALLBACK_SECRET", "callback_secret")
-	os.Setenv("ADMIN_API_KEY", "admin_key")
+func setRequiredEnvs(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost:5432/paystable")
+	t.Setenv("GATEWAY", "payu")
+	t.Setenv("WEBHOOK_SECRET", "secret")
+	t.Setenv("GATEWAY_API_KEY", "gateway_key")
+	t.Setenv("PAYU_STATUS_URL", "https://info.payu.in/merchant/postservice")
+	t.Setenv("MERCHANT_CALLBACK_SECRET", "callback_secret")
+	t.Setenv("ADMIN_API_KEY", "admin_key")
 }
 
-func clearAllEnvs() {
+func clearAllEnvs(t *testing.T) {
 	for _, env := range []string{
 		"DATABASE_URL", "GATEWAY", "WEBHOOK_SECRET", "GATEWAY_API_KEY",
 		"PAYU_STATUS_URL", "MERCHANT_CALLBACK_SECRET", "ADMIN_API_KEY", "PORT",
 		"STABILIZATION_N", "MAX_BACKOFF_S", "HOLD_MAX_TTL_S", "LOG_LEVEL",
 	} {
-		os.Unsetenv(env)
+		t.Setenv(env, "")
 	}
 }
 
 func TestLoad_MissingRequired(t *testing.T) {
-	clearAllEnvs()
-	defer clearAllEnvs()
+	clearAllEnvs(t)
 
 	_, err := Load()
 	if err == nil {
@@ -36,9 +32,8 @@ func TestLoad_MissingRequired(t *testing.T) {
 }
 
 func TestLoad_AllRequired(t *testing.T) {
-	clearAllEnvs()
-	defer clearAllEnvs()
-	setRequiredEnvs()
+	clearAllEnvs(t)
+	setRequiredEnvs(t)
 
 	cfg, err := Load()
 	if err != nil {
@@ -57,9 +52,8 @@ func TestLoad_AllRequired(t *testing.T) {
 }
 
 func TestLoad_Defaults(t *testing.T) {
-	clearAllEnvs()
-	defer clearAllEnvs()
-	setRequiredEnvs()
+	clearAllEnvs(t)
+	setRequiredEnvs(t)
 
 	cfg, _ := Load()
 
@@ -81,15 +75,14 @@ func TestLoad_Defaults(t *testing.T) {
 }
 
 func TestLoad_CustomOptionals(t *testing.T) {
-	clearAllEnvs()
-	defer clearAllEnvs()
-	setRequiredEnvs()
+	clearAllEnvs(t)
+	setRequiredEnvs(t)
 
-	os.Setenv("PORT", "9000")
-	os.Setenv("STABILIZATION_N", "5")
-	os.Setenv("MAX_BACKOFF_S", "300")
-	os.Setenv("HOLD_MAX_TTL_S", "600")
-	os.Setenv("LOG_LEVEL", "debug")
+	t.Setenv("PORT", "9000")
+	t.Setenv("STABILIZATION_N", "5")
+	t.Setenv("MAX_BACKOFF_S", "300")
+	t.Setenv("HOLD_MAX_TTL_S", "600")
+	t.Setenv("LOG_LEVEL", "debug")
 
 	cfg, _ := Load()
 
@@ -111,13 +104,12 @@ func TestLoad_CustomOptionals(t *testing.T) {
 }
 
 func TestLoad_InvalidIntFallsBackToDefault(t *testing.T) {
-	clearAllEnvs()
-	defer clearAllEnvs()
-	setRequiredEnvs()
+	clearAllEnvs(t)
+	setRequiredEnvs(t)
 
-	os.Setenv("STABILIZATION_N", "abc")
-	os.Setenv("MAX_BACKOFF_S", "not_a_number")
-	os.Setenv("HOLD_MAX_TTL_S", "")
+	t.Setenv("STABILIZATION_N", "abc")
+	t.Setenv("MAX_BACKOFF_S", "not_a_number")
+	t.Setenv("HOLD_MAX_TTL_S", "")
 
 	cfg, _ := Load()
 
@@ -133,11 +125,10 @@ func TestLoad_InvalidIntFallsBackToDefault(t *testing.T) {
 }
 
 func TestLoad_SingleMissingRequired(t *testing.T) {
-	clearAllEnvs()
-	defer clearAllEnvs()
-	setRequiredEnvs()
+	clearAllEnvs(t)
+	setRequiredEnvs(t)
 
-	os.Unsetenv("GATEWAY_API_KEY")
+	t.Setenv("GATEWAY_API_KEY", "")
 
 	_, err := Load()
 	if err == nil {

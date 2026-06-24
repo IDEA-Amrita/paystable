@@ -81,7 +81,16 @@ func Run(ctx context.Context, db *sql.DB, cfg *config.Config, lag *LagEstimator,
 			}
 			polls = append(polls, p)
 		}
-		rows.Close()
+		if err := rows.Close(); err != nil {
+			_ = tx.Rollback()
+			slog.Error("stabilizer: close poll rows failed", "error", err)
+			continue
+		}
+		if err := rows.Err(); err != nil {
+			_ = tx.Rollback()
+			slog.Error("stabilizer: poll rows failed", "error", err)
+			continue
+		}
 
 		if len(polls) == 0 {
 			_ = tx.Rollback()
@@ -276,7 +285,9 @@ func completedStreak(ctx context.Context, db *sql.DB, txnID string, match func(s
 	if err != nil {
 		return 0
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	count := 0
 	for rows.Next() {

@@ -47,8 +47,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Send initial status
 	var currentStatus string
 	h.db.QueryRowContext(r.Context(), `SELECT status FROM holds WHERE txn_id=$1`, txnID).Scan(&currentStatus) //nolint:errcheck
-	fmt.Fprintf(w, "event: status_change\ndata: {\"status\":\"%s\",\"at\":\"%s\"}\n\n",
-		currentStatus, time.Now().UTC().Format(time.RFC3339))
+	if _, err := fmt.Fprintf(w, "event: status_change\ndata: {\"status\":\"%s\",\"at\":\"%s\"}\n\n",
+		currentStatus, time.Now().UTC().Format(time.RFC3339)); err != nil {
+		slog.Warn("sse: write status", "error", err)
+		return
+	}
 	flusher.Flush()
 
 	ticker := time.NewTicker(2 * time.Second)
@@ -67,12 +70,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			if newStatus != currentStatus {
 				currentStatus = newStatus
-				fmt.Fprintf(w, "event: status_change\ndata: {\"status\":\"%s\",\"at\":\"%s\"}\n\n",
-					currentStatus, time.Now().UTC().Format(time.RFC3339))
+				if _, err := fmt.Fprintf(w, "event: status_change\ndata: {\"status\":\"%s\",\"at\":\"%s\"}\n\n",
+					currentStatus, time.Now().UTC().Format(time.RFC3339)); err != nil {
+					slog.Warn("sse: write status", "error", err)
+					return
+				}
 				flusher.Flush()
 			}
 			// Send heartbeat comment to keep connection alive
-			fmt.Fprintf(w, ": heartbeat\n\n")
+			if _, err := fmt.Fprintf(w, ": heartbeat\n\n"); err != nil {
+				slog.Warn("sse: write heartbeat", "error", err)
+				return
+			}
 			flusher.Flush()
 			// Terminal states: close the stream
 			if currentStatus == "CONFIRMED" || currentStatus == "FAILED" ||

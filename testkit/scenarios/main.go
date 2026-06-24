@@ -206,7 +206,9 @@ func getStatus(txnID string) string {
 	if err != nil {
 		return "error: " + err.Error()
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 	body, _ := io.ReadAll(resp.Body)
 	var m map[string]interface{}
 	if err := json.Unmarshal(body, &m); err != nil {
@@ -230,7 +232,9 @@ func postJSON(url string, body interface{}, headers map[string]string) string {
 		log("   POST %s error: %v", url, err)
 		return ""
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 	respBody, _ := io.ReadAll(resp.Body)
 	return string(respBody)
 }

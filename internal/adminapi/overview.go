@@ -64,7 +64,9 @@ func (h *Handler) deliveries(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	type delivery struct {
 		ID            int64      `json:"id"`

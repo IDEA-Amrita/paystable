@@ -109,7 +109,9 @@ func handleFireWebhook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
-	resp.Body.Close()
+	if err := resp.Body.Close(); err != nil {
+		slog.Warn("close webhook response", "error", err)
+	}
 	slog.Info("webhook fired", "txn_id", req.TxnID, "status", req.Status, "code", resp.StatusCode)
 	w.WriteHeader(http.StatusOK)
 }

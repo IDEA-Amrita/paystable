@@ -69,7 +69,11 @@ func scanExpiredHolds(ctx context.Context, db *sql.DB, clientFactory func(string
 		}
 		batch = append(batch, h)
 	}
-	rows.Close()
+	if err := rows.Close(); err != nil {
+		slog.Error("expiry scanner: close rows failed", "error", err)
+		_ = tx.Rollback()
+		return
+	}
 
 	if err := rows.Err(); err != nil {
 		slog.Error("expiry scanner: rows iteration failed", "error", err)

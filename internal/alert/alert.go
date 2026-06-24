@@ -28,9 +28,9 @@ type Alerter struct {
 
 func New() *Alerter {
 	return &Alerter{
-		slackURL: os.Getenv("SLACK_WEBHOOK_URL"),
-		tgToken:  os.Getenv("TELEGRAM_BOT_TOKEN"),
-		tgChatID: os.Getenv("TELEGRAM_CHAT_ID"),
+		slackURL:   os.Getenv("SLACK_WEBHOOK_URL"),
+		tgToken:    os.Getenv("TELEGRAM_BOT_TOKEN"),
+		tgChatID:   os.Getenv("TELEGRAM_CHAT_ID"),
 		httpClient: &http.Client{Timeout: 5 * time.Second},
 	}
 }
@@ -58,7 +58,9 @@ func (a *Alerter) sendSlack(msg string) {
 		slog.Error("alert: slack send", "error", err)
 		return
 	}
-	resp.Body.Close()
+	if err := resp.Body.Close(); err != nil {
+		slog.Error("alert: slack response close", "error", err)
+	}
 }
 
 func (a *Alerter) sendTelegram(msg string) {
@@ -75,5 +77,7 @@ func (a *Alerter) sendTelegram(msg string) {
 		slog.Error("alert: telegram send", "error", err)
 		return
 	}
-	resp.Body.Close()
+	if err := resp.Body.Close(); err != nil {
+		slog.Error("alert: telegram response close", "error", err)
+	}
 }

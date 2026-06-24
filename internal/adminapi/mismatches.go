@@ -38,7 +38,9 @@ func (h *Handler) mismatches(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	type mismatch struct {
 		TxnID          string    `json:"txn_id"`
@@ -252,7 +254,10 @@ func (h *Handler) updateConfig(w http.ResponseWriter, r *http.Request) {
 		if newVal, ok := req[key]; ok {
 			lines[i] = fmt.Sprintf("%s=%s", key, newVal)
 			updatedKeys[key] = true
-			os.Setenv(key, newVal) // Update active env
+			if err := os.Setenv(key, newVal); err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to apply config: " + err.Error()})
+				return
+			}
 		}
 	}
 
@@ -260,7 +265,10 @@ func (h *Handler) updateConfig(w http.ResponseWriter, r *http.Request) {
 	for key, newVal := range req {
 		if !updatedKeys[key] {
 			lines = append(lines, fmt.Sprintf("%s=%s", key, newVal))
-			os.Setenv(key, newVal)
+			if err := os.Setenv(key, newVal); err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to apply config: " + err.Error()})
+				return
+			}
 		}
 	}
 
