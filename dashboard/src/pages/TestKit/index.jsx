@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { cn, formatRelativeTime } from '../../lib/utils'
+import { cn } from '../../lib/utils'
 
 const GATEWAY_URL  = import.meta.env.VITE_GATEWAY_URL  || 'http://localhost:9090'
 const MERCHANT_URL = import.meta.env.VITE_MERCHANT_URL || 'http://localhost:9091'
@@ -74,6 +74,7 @@ export default function TestKit() {
   const [currentStatus, setCurrentStatus] = useState(null)
   const pollRef = useRef(null)
   const logRef  = useRef(null)
+  const runSeqRef = useRef(0)
 
   const addLog = (msg, type = 'info') => {
     const time = new Date().toLocaleTimeString('en-IN', { hour12: false })
@@ -94,8 +95,9 @@ export default function TestKit() {
         const data = await res.json()
         const s = data.status
         setCurrentStatus(s)
-        addLog(`status: ${s}`, ['CONFIRMED','FAILED','INDETERMINATE'].includes(s) ? (s === 'CONFIRMED' ? 'success' : 'error') : 'status')
-        if (['CONFIRMED','FAILED','INDETERMINATE'].includes(s)) {
+        const terminal = ['CONFIRMED','FAILED','INDETERMINATE','MISMATCH'].includes(s)
+        addLog(`status: ${s}`, terminal ? (s === 'CONFIRMED' ? 'success' : 'error') : 'status')
+        if (terminal) {
           clearInterval(pollRef.current)
           setRunning(null)
           addLog(`done: ${s}`, s === 'CONFIRMED' ? 'success' : 'error')
@@ -111,7 +113,8 @@ export default function TestKit() {
     setLog([])
     setCurrentStatus(null)
     setActiveTxn(null)
-    const txnID = `${scenario.id}-${Date.now()}`
+    runSeqRef.current += 1
+    const txnID = `${scenario.id}-${runSeqRef.current}`
     const holdAmount = scenario.holdAmount || scenario.amount
 
     try {
@@ -182,6 +185,7 @@ export default function TestKit() {
     CONFIRMED: 'text-status-green',
     FAILED: 'text-status-red',
     INDETERMINATE: 'text-status-yellow',
+    MISMATCH: 'text-status-yellow',
     VERIFYING: 'text-status-blue',
     PENDING: 'text-text-muted',
   }

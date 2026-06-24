@@ -108,8 +108,8 @@ your frontend opens an SSE stream (or polls every 3s as fallback) on the payment
 
 ```bash
 curl -sSL https://paystable.vercel.app | sh
-cp .env.example .env
-# fill in DATABASE_URL, GATEWAY, API keys
+cd paystable
+# fill in .env
 ./paystable
 # dashboard at http://localhost:8080/dashboard
 ```
@@ -119,7 +119,8 @@ that's it. single static Go binary. no JVM, no Node runtime, no Python. one proc
 for local development with postgres included:
 
 ```bash
-docker compose up
+cp .env.testkit.example .env.testkit
+docker compose -f docker-compose.testkit.yml --env-file .env.testkit up --build
 ```
 
 ---
@@ -127,10 +128,12 @@ docker compose up
 ## secret rotation, zero downtime
 
 ```bash
-paystable secret rotate --new=NEW_SECRET --window=24h
+curl -X POST http://localhost:8080/api/v1/admin/config/rotate-secret \
+  -H 'content-type: application/json' \
+  -d '{"gateway":"payu","new_secret":"NEW_SECRET","window_hours":24}'
 ```
 
-paystable accepts webhooks signed by either the old or new key for the duration of the window. when the window closes (auto, with a T-1h alert), the old key is dropped. no 2am pages.
+set `SECRET_ENCRYPTION_KEY` before using rotation. paystable accepts webhooks signed by either the old or new key for the duration of the window; after the window, expired keys are ignored.
 
 ---
 

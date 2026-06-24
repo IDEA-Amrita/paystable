@@ -3,8 +3,10 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN go build -o paystable ./cmd/paystable
+RUN CGO_ENABLED=0 go build -o paystable ./cmd/paystable
 
 FROM alpine:3.20
+RUN apk add --no-cache ca-certificates && adduser -D -H -s /sbin/nologin paystable
 COPY --from=builder /app/paystable /paystable
+USER paystable
 ENTRYPOINT ["/paystable"]

@@ -28,7 +28,7 @@ CREATE INDEX idx_holds_gateway_status ON holds (gateway, status);
 --1.2)state transition enforcement trigger(prevents illegal transitions)
 CREATE OR REPLACE FUNCTION enforce_hold_transitions() RETURNS trigger AS $$
 BEGIN
-    IF OLD.status IN ('CONFIRMED', 'FAILED', 'REFUNDED', 'INDETERMINATE') THEN
+    IF OLD.status IN ('CONFIRMED', 'FAILED', 'REFUNDED', 'INDETERMINATE', 'MISMATCH') THEN
         IF NOT (OLD.status = 'CONFIRMED' AND NEW.status = 'REFUNDED') THEN
             RAISE EXCEPTION 'illegal transition from % to %', OLD.status, NEW.status;
         END IF;
@@ -47,7 +47,7 @@ CREATE TRIGGER trg_hold_transitions
 --2.1)webhooks: standard unpartitioned table
 CREATE TABLE webhooks (
     id              bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    txn_id          text NOT NULL REFERENCES holds(txn_id),
+    txn_id          text NOT NULL,
     gateway         text NOT NULL,
     gateway_event_id text,
     event_type      text NOT NULL,

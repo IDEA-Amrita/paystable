@@ -1,11 +1,5 @@
 BEGIN;
 
-DROP TABLE IF EXISTS webhooks_y2026m12;
-DROP TABLE IF EXISTS webhooks_y2026m11;
-DROP TABLE IF EXISTS webhooks_y2026m10;
-DROP TABLE IF EXISTS webhooks_y2026m09;
-DROP TABLE IF EXISTS webhooks_y2026m08;
-DROP TABLE IF EXISTS webhooks_y2026m07;
-DROP INDEX IF EXISTS idx_webhooks_dedup_lookup;
+ALTER TABLE webhooks DROP CONSTRAINT IF EXISTS webhooks_gateway_event_id_unique;
 
 COMMIT;

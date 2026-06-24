@@ -2,7 +2,7 @@ import { useEffect, useCallback } from 'react'
 import { X } from 'lucide-react'
 import { cn } from '../../lib/utils'
 
-export default function Drawer({ open, onClose, children, title }) {
+export default function Drawer({ open, onClose, children }) {
   const handleKeyDown = useCallback((e) => {
     if (e.key === 'Escape' && open) onClose()
   }, [open, onClose])

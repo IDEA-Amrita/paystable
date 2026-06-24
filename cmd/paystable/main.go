@@ -63,7 +63,7 @@ func main() {
 	}
 
 	go stabilizer.Run(ctx, db, cfg, lag, gatewayFactory)
-	go hold.StartExpiryScanner(ctx, db, gatewayFactory)
+	go stabilizer.RunTTLScanner(ctx, db, cfg, gatewayFactory)
 	go delivery.Run(ctx, db, delivery.Config{
 		CallbackSecret:    cfg.MerchantCallbackSecret,
 		AllowInsecure:     cfg.DeliveryAllowInsecure,
@@ -74,7 +74,7 @@ func main() {
 	mux := http.NewServeMux()
 
 	// ── Public endpoints ──────────────────────────────────────────────
-	mux.Handle("POST /webhooks/{gateway}", webhook.NewHandler(db, cfg.WebhookSecret))
+	mux.Handle("POST /webhooks/{gateway}", webhook.NewHandler(db, cfg))
 	mux.HandleFunc("GET /api/v1/transactions/{txn_id}/status", holdHandler.HandleStatus)
 	mux.HandleFunc("GET /api/v1/transactions/{txn_id}/stream", sse.NewHandler(db).ServeHTTP)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {

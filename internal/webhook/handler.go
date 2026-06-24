@@ -1,6 +1,7 @@
 package webhook
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"io"
@@ -11,17 +12,19 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/IDEA-Amrita/paystable/internal/config"
 	"github.com/IDEA-Amrita/paystable/internal/gateway/payu"
 	"github.com/IDEA-Amrita/paystable/internal/metrics"
+	"github.com/IDEA-Amrita/paystable/internal/secrets"
 )
 
 type Handler struct {
-	db     *sql.DB
-	secret string
+	db  *sql.DB
+	cfg *config.Config
 }
 
-func NewHandler(db *sql.DB, secret string) *Handler {
-	return &Handler{db: db, secret: secret}
+func NewHandler(db *sql.DB, cfg *config.Config) *Handler {
+	return &Handler{db: db, cfg: cfg}
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -44,7 +47,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !h.verify(gateway, params) {
+	if !h.verify(r.Context(), gateway, params) {
 		h.quarantine(gateway, "hmac_mismatch", r, body)
 		metrics.WebhookHMACFailures.Inc()
 		w.WriteHeader(http.StatusOK)
@@ -72,13 +75,60 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-func (h *Handler) verify(gateway string, params map[string]string) bool {
+func (h *Handler) verify(ctx context.Context, gateway string, params map[string]string) bool {
+	candidates := h.activeSecrets(ctx, gateway)
+	if len(candidates) == 0 && h.cfg.WebhookSecret != "" {
+		candidates = append(candidates, h.cfg.WebhookSecret)
+	}
+
 	switch gateway {
 	case "payu":
-		return payu.VerifyResponseHash(params, h.secret)
+		for _, secret := range candidates {
+			if payu.VerifyResponseHash(params, secret) {
+				return true
+			}
+		}
+		return false
 	default:
 		return false
 	}
+}
+
+func (h *Handler) activeSecrets(ctx context.Context, gateway string) []string {
+	if h.cfg.SecretEncryptionKey == "" {
+		return nil
+	}
+	key, err := secrets.ParseKey(h.cfg.SecretEncryptionKey)
+	if err != nil {
+		slog.Error("webhook secret key invalid", "error", err)
+		return nil
+	}
+	rows, err := h.db.QueryContext(ctx, `
+		SELECT secret_encrypted
+		FROM gateway_secrets
+		WHERE gateway=$1 AND is_active=true
+		  AND (rotation_window_end IS NULL OR rotation_window_end > now())
+		ORDER BY created_at DESC`, gateway)
+	if err != nil {
+		slog.Error("load active gateway secrets failed", "error", err, "gateway", gateway)
+		return nil
+	}
+	defer rows.Close()
+
+	var out []string
+	for rows.Next() {
+		var ciphertext []byte
+		if err := rows.Scan(&ciphertext); err != nil {
+			continue
+		}
+		plain, err := secrets.Decrypt(ciphertext, key)
+		if err != nil {
+			slog.Error("decrypt gateway secret failed", "error", err, "gateway", gateway)
+			continue
+		}
+		out = append(out, string(plain))
+	}
+	return out
 }
 
 func (h *Handler) persist(gateway string, params map[string]string) error {
@@ -88,18 +138,22 @@ func (h *Handler) persist(gateway string, params map[string]string) error {
 
 	payload, _ := json.Marshal(params)
 
-	_, err := h.db.Exec(`
+	var insertedID int64
+	err := h.db.QueryRow(`
 		INSERT INTO webhooks (txn_id, gateway, gateway_event_id, event_type, payload)
-		SELECT $1, $2, $3, $4, $5::jsonb
-		WHERE EXISTS (SELECT 1 FROM holds WHERE txn_id = $1)
-		ON CONFLICT (gateway, gateway_event_id) DO NOTHING`,
-		txnID, gateway, gatewayEventID, eventType, payload)
+		VALUES ($1, $2, NULLIF($3, ''), $4, $5::jsonb)
+		ON CONFLICT (gateway, gateway_event_id) DO NOTHING
+		RETURNING id`,
+		txnID, gateway, gatewayEventID, eventType, payload).Scan(&insertedID)
 
+	if err == sql.ErrNoRows {
+		slog.Info("duplicate webhook ignored", "gateway", gateway, "txn_id", txnID, "event", eventType)
+		return nil
+	}
 	if err != nil {
 		return err
 	}
 
-	// enqueue a verification poll to accelerate stabilization (best-effort)
 	if _, err := h.db.Exec(`INSERT INTO verification_polls (txn_id, attempt_number, scheduled_at, status)
 		SELECT $1, 1, now(), 'pending' WHERE EXISTS (SELECT 1 FROM holds WHERE txn_id = $1)`, txnID); err != nil {
 		slog.Warn("enqueue verification poll after webhook failed", "txn_id", txnID, "error", err)

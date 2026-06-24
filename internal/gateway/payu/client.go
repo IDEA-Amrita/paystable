@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -78,11 +81,22 @@ func (c *Client) Status(ctx context.Context, txnID string) (string, int64, json.
 	if v, ok := m["amount"].(float64); ok {
 		amount = int64(v)
 	} else if v, ok := m["amount"].(string); ok {
-		var f float64
-		if _, err := fmt.Sscan(v, &f); err == nil {
-			amount = int64(f)
+		if parsed, err := parseAmount(v); err == nil {
+			amount = parsed
 		}
 	}
 
 	return status, amount, json.RawMessage(b), nil
+}
+
+func parseAmount(v string) (int64, error) {
+	v = strings.TrimSpace(v)
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil {
+		return 0, err
+	}
+	if strings.Contains(v, ".") {
+		return int64(math.Round(f * 100)), nil
+	}
+	return int64(f), nil
 }

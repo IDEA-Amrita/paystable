@@ -19,6 +19,7 @@ jobs:
         working-directory: dashboard
         run: |
           npm ci
+          npm run lint
           npm run build
           cp -r dist ../internal/ui/dist
 
@@ -32,6 +33,7 @@ jobs:
               echo "Built $OUT"
             done
           done
+          (cd dist && sha256sum paystable-* > checksums.txt)
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

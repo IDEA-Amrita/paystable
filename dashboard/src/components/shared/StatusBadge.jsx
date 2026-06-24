@@ -6,6 +6,7 @@ const STATUS_CONFIG = {
   CONFIRMED:     { color: 'text-status-green',  bg: 'bg-status-green/10',  border: 'border-status-green/30' },
   FAILED:        { color: 'text-status-red',    bg: 'bg-status-red/10',    border: 'border-status-red/30' },
   INDETERMINATE: { color: 'text-status-purple', bg: 'bg-status-purple/10', border: 'border-status-purple/30' },
+  MISMATCH:      { color: 'text-status-purple', bg: 'bg-status-purple/10', border: 'border-status-purple/30' },
   REFUNDED:      { color: 'text-status-cyan',   bg: 'bg-status-cyan/10',   border: 'border-status-cyan/30' },
 }
 

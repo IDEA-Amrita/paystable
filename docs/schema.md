@@ -45,7 +45,7 @@ The central record. One row per checkout attempt.
 | id | bigint | PK, generated always as identity | Internal ID. Never exposed. |
 | txn_id | text | UNIQUE, NOT NULL | Merchant-provided. Opaque string. This is the public identifier. |
 | gateway | text | NOT NULL | `payu`, `razorpay`, `cashfree`, `phonepe` |
-| status | text | NOT NULL, DEFAULT 'PENDING' | One of: PENDING, VERIFYING, CONFIRMED, FAILED, REFUNDED, INDETERMINATE |
+| status | text | NOT NULL, DEFAULT 'PENDING' | One of: PENDING, VERIFYING, CONFIRMED, FAILED, REFUNDED, INDETERMINATE, MISMATCH |
 | amount | bigint | NOT NULL | In smallest currency unit (paise for INR). Bigint, not decimal, to avoid floating point. |
 | currency | text | NOT NULL, DEFAULT 'INR' | ISO 4217. |
 | read_token | text | UNIQUE, NOT NULL | KSUID. Issued at creation. Used by frontend for status polling. |
@@ -203,7 +203,7 @@ Webhook signing secrets with zero-downtime rotation support.
 |--------|------|-------------|-------|
 | id | bigint | PK, generated always as identity | |
 | gateway | text | NOT NULL | |
-| secret_encrypted | bytea | NOT NULL | AES-256-GCM encrypted. Decrypted in memory only. |
+| secret_encrypted | bytea | NOT NULL | AES-256-GCM encrypted with `SECRET_ENCRYPTION_KEY`. |
 | is_active | boolean | NOT NULL, DEFAULT true | |
 | rotation_window_end | timestamptz | | If set, this key is in rotation and will be deactivated after this time. |
 | created_at | timestamptz | NOT NULL, DEFAULT now() | |

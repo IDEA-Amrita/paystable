@@ -34,8 +34,8 @@ X-Paystable-Timestamp: <unix_seconds>
 | Field | Type | Notes |
 |-------|------|-------|
 | `txn_id` | string | The merchant-supplied id from `POST /hold`. |
-| `event` | string | One of `transaction.confirmed`, `transaction.failed`, `transaction.indeterminate`. |
-| `status` | string | `CONFIRMED`, `FAILED`, or `INDETERMINATE`. |
+| `event` | string | One of `transaction.confirmed`, `transaction.failed`, `transaction.indeterminate`, `transaction.mismatch`. |
+| `status` | string | `CONFIRMED`, `FAILED`, `INDETERMINATE`, or `MISMATCH`. |
 | `amount` | int64 | Paise (INR smallest unit). Same value from `POST /hold`. |
 | `currency` | string | ISO 4217, always `INR` for phase 1. |
 | `gateway` | string | Gateway that processed the payment. |

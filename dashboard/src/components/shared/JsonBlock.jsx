@@ -3,12 +3,6 @@ import { ChevronRight, ChevronDown, Copy, Check } from 'lucide-react'
 import { cn } from '../../lib/utils'
 
 function tokenize(jsonString) {
-  const tokens = []
-  const regex = /("(?:[^"\\]|\\.)*")\s*:/g
-  let lastIndex = 0
-  let match
-
-  // Simple tokenizer: split JSON into colored segments
   const lines = jsonString.split('\n')
   
   return lines.map((line, lineIdx) => {

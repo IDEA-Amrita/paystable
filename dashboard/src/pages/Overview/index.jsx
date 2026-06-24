@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { LayoutDashboard, TrendingUp, AlertTriangle, CheckCircle, XCircle, Clock, Activity } from 'lucide-react'
+import { LayoutDashboard, Activity } from 'lucide-react'
 import { api } from '../../lib/api'
 import { cn, formatRelativeTime, formatCurrency, statusLabel } from '../../lib/utils'
 
@@ -7,6 +7,7 @@ const STATUS_COLOR = {
   CONFIRMED:     'text-status-green',
   FAILED:        'text-status-red',
   INDETERMINATE: 'text-status-yellow',
+  MISMATCH:      'text-status-yellow',
   PENDING:       'text-text-muted',
   VERIFYING:     'text-text-muted',
   REFUNDED:      'text-text-secondary',

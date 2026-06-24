@@ -240,7 +240,7 @@ This is not an edge case. Every team running on Indian payment gateways without 
 
 | ID | Requirement |
 |----|-------------|
-| FR-6.1 | Legal states: `PENDING`, `VERIFYING`, `CONFIRMED`, `FAILED`, `REFUNDED`, `INDETERMINATE`. |
+| FR-6.1 | Legal states: `PENDING`, `VERIFYING`, `CONFIRMED`, `FAILED`, `REFUNDED`, `INDETERMINATE`, `MISMATCH`. |
 | FR-6.2 | Terminal states (`CONFIRMED`, `FAILED`, `REFUNDED`) are locked. Only `CONFIRMED` → `REFUNDED` is allowed post-terminal. |
 | FR-6.3 | Late webhooks that contradict a terminal state MUST be logged but MUST NOT change state. |
 | FR-6.4 | All transitions recorded in the reconciliation ledger. |
@@ -409,6 +409,7 @@ Authorization: Bearer <admin_key>
 | `VERIFYING` | `CONFIRMED` | N consecutive polls agree on `success` + amount matches |
 | `VERIFYING` | `FAILED` | N consecutive polls agree on `failed` + TTL final-check confirms |
 | `VERIFYING` | `INDETERMINATE` | Backoff exhausted, no stable consensus |
+| `VERIFYING` | `MISMATCH` | Gateway confirms success but amount/currency does not match |
 | `CONFIRMED` | `REFUNDED` | Refund webhook received + verified |
 | `PENDING` | `FAILED` | TTL expires + final verification confirms failure |
 

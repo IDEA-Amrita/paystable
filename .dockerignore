@@ -1,0 +1,14 @@
+.git
+.env
+.env.*
+!.env.example
+!.env.testkit.example
+paystable
+coverage.out
+coverage.html
+node_modules
+**/node_modules
+dashboard/dist
+dashboard/.vite
+docs-site
+*.log
