@@ -4,6 +4,9 @@ import mermaid from 'astro-mermaid';
 
 // https://astro.build/config
 export default defineConfig({
+	redirects: {
+		'/': '/guides/getting-started/',
+	},
 	integrations: [
 		mermaid(),
 		starlight({
