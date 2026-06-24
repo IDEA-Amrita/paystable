@@ -22,45 +22,76 @@ set -e
 REPO="IDEA-Amrita/paystable"
 BINARY="paystable"
 
+info() {
+  echo "[INFO] $*"
+}
+
+error() {
+  echo "[ERROR] $*" >&2
+}
+
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m)
 
 case "$ARCH" in
   x86_64|amd64) ARCH="amd64" ;;
   aarch64|arm64) ARCH="arm64" ;;
-  *) echo "unsupported architecture: $ARCH"; exit 1 ;;
+  *) error "unsupported architecture: $ARCH"; exit 1 ;;
 esac
 
 case "$OS" in
   linux|darwin) ;;
-  *) echo "unsupported OS: $OS"; exit 1 ;;
+  *) error "unsupported OS: $OS"; exit 1 ;;
 esac
 
 ASSET="${BINARY}-${OS}-${ARCH}"
 
-echo "detecting platform... ${OS}/${ARCH}"
+info "starting paystable installation"
+info "detected platform: ${OS}/${ARCH}"
 
-LATEST=$(curl -sSL "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name"' | cut -d'"' -f4)
+info "fetching latest release metadata"
+LATEST=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name"' | cut -d'"' -f4)
 
 if [ -z "$LATEST" ]; then
-  echo "error: could not fetch latest release"
+  error "could not fetch latest release"
   exit 1
 fi
 
-echo "creating paystable directory..."
+info "latest release: ${LATEST}"
+info "creating paystable directory"
 mkdir -p paystable
 cd paystable
 
-echo "downloading ${BINARY} ${LATEST}..."
+info "downloading ${ASSET}"
 URL="https://github.com/${REPO}/releases/download/${LATEST}/${ASSET}"
-curl -sSL "$URL" -o "${BINARY}"
+curl -fsSL "$URL" -o "${BINARY}"
+
+info "downloading checksums"
+curl -fsSL "https://github.com/${REPO}/releases/download/${LATEST}/checksums.txt" -o checksums.txt
+EXPECTED=$(grep " ${ASSET}$" checksums.txt | awk '{print $1}')
+if [ -z "$EXPECTED" ]; then
+  error "checksum for ${ASSET} was not found"
+  exit 1
+fi
+
+info "verifying checksum"
+if command -v sha256sum >/dev/null 2>&1; then
+  echo "${EXPECTED}  ${BINARY}" | sha256sum -c - >/dev/null
+elif command -v shasum >/dev/null 2>&1; then
+  echo "${EXPECTED}  ${BINARY}" | shasum -a 256 -c - >/dev/null
+else
+  error "sha256sum or shasum is required to verify the download"
+  exit 1
+fi
+
+info "marking binary executable"
 chmod +x "${BINARY}"
 
-echo "fetching .env.example..."
-curl -sSL "https://raw.githubusercontent.com/${REPO}/${LATEST}/.env.example" -o .env.example
+info "fetching .env.example"
+curl -fsSL "https://raw.githubusercontent.com/${REPO}/${LATEST}/.env.example" -o .env.example
 cp .env.example .env
 
-echo "generating instructions.md..."
+info "writing instructions.md"
 cat << 'EOF' > instructions.md
 # Paystable Quick Start Guide
 
@@ -97,10 +128,6 @@ For in-depth integration workflows, callback contracts, and configuration option
 https://github.com/IDEA-Amrita/paystable
 EOF
 
-echo "--------------------------------------------------------"
-echo "Paystable ${LATEST} has been successfully installed!"
-echo "A directory named 'paystable' was created in your current path."
-echo "To get started:"
-echo "  1. cd paystable"
-echo "  2. Open instructions.md for quick setup instructions."
-echo "--------------------------------------------------------"
+info "paystable ${LATEST} installed successfully"
+info "next step: cd paystable && edit .env"
+info "then run: ./paystable"

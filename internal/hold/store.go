@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
-	"log/slog"
 	"time"
 )
 
@@ -31,7 +30,8 @@ type Store struct {
 func NewStore(db *sql.DB) *Store {
 	return &Store{db: db}
 }
-//1)Create: inserts new hold record, generates read token, returns hold details. If txn_id already exists, returns existing hold.
+
+// 1)Create: inserts new hold record, generates read token, returns hold details. If txn_id already exists, returns existing hold.
 func (s *Store) Create(txnID, gateway, callbackURL, currency string, amount int64, ttl int, metadata []byte) (*Hold, error) {
 	readToken, err := generateToken()
 	if err != nil {
@@ -57,14 +57,10 @@ func (s *Store) Create(txnID, gateway, callbackURL, currency string, amount int6
 		return nil, fmt.Errorf("insert hold: %w", err)
 	}
 
-	// enqueue initial verification poll for the hold (best-effort)
-	if _, err := s.db.Exec(`INSERT INTO verification_polls (txn_id, attempt_number, scheduled_at, status) VALUES ($1, 1, now(), 'pending')`, h.TxnID); err != nil {
-		slog.Warn("enqueue initial verification poll failed", "txn_id", h.TxnID, "error", err)
-	}
-
 	return h, nil
 }
-//2)GetByTxnID: retrieves hold by txn_id(called when there's a conflict on create to return existing hold)
+
+// 2)GetByTxnID: retrieves hold by txn_id(called when there's a conflict on create to return existing hold)
 func (s *Store) GetByTxnID(txnID string) (*Hold, error) {
 	h := &Hold{}
 	err := s.db.QueryRow(`
@@ -77,7 +73,7 @@ func (s *Store) GetByTxnID(txnID string) (*Hold, error) {
 	return h, nil
 }
 
-//3)GetByTxnIDAndToken: retrieves hold by txn_id and read token (used for status endpoint to validate read access)
+// 3)GetByTxnIDAndToken: retrieves hold by txn_id and read token (used for status endpoint to validate read access)
 func (s *Store) GetByTxnIDAndToken(txnID, token string) (*Hold, error) {
 	h := &Hold{}
 	err := s.db.QueryRow(`

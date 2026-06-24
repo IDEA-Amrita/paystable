@@ -11,18 +11,23 @@ func (h *Handler) PublicTimeline(w http.ResponseWriter, r *http.Request) {
 	txnID := r.PathValue("id")
 	token := r.URL.Query().Get("token")
 
-	if txnID == "" || token == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing txn_id or token"})
+	if txnID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing txn_id"})
 		return
 	}
-
-	// Validate token against holds table
-	var exists bool
-	err := h.db.QueryRowContext(ctx,
-		`SELECT true FROM holds WHERE txn_id=$1 AND read_token=$2`, txnID, token).Scan(&exists)
-	if err != nil || !exists {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
-		return
+	if token == "" {
+		if h.cfg.AdminAPIKey == "" || r.Header.Get("Authorization") != "Bearer "+h.cfg.AdminAPIKey {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "missing token"})
+			return
+		}
+	} else {
+		var exists bool
+		err := h.db.QueryRowContext(ctx,
+			`SELECT true FROM holds WHERE txn_id=$1 AND read_token=$2`, txnID, token).Scan(&exists)
+		if err != nil || !exists {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			return
+		}
 	}
 
 	events := h.buildTimeline(ctx, txnID)

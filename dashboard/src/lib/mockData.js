@@ -21,8 +21,8 @@ function randomId() {
 
 // --- Transactions ---
 const GATEWAYS = ['PayU', 'Razorpay', 'Cashfree', 'PhonePe']
-const STATUSES = ['PENDING', 'VERIFYING', 'CONFIRMED', 'FAILED', 'INDETERMINATE', 'REFUNDED']
-const STATUS_WEIGHTS = [0.05, 0.08, 0.55, 0.18, 0.06, 0.08]
+const STATUSES = ['PENDING', 'VERIFYING', 'CONFIRMED', 'FAILED', 'INDETERMINATE', 'MISMATCH', 'REFUNDED']
+const STATUS_WEIGHTS = [0.05, 0.08, 0.55, 0.16, 0.05, 0.03, 0.08]
 
 function pickWeighted(items, weights) {
   const r = seededRandom()
@@ -193,7 +193,6 @@ function generateMismatchRateChart() {
 // --- Ledger Feed ---
 function generateLedgerFeed() {
   const eventTypes = ['state_transition', 'webhook_received', 'hold_created', 'poll_completed', 'callback_delivered']
-  const actors = ['stabilizer', 'PayU', 'Razorpay', 'API', 'delivery']
   const feed = []
 
   for (let i = 0; i < 10; i++) {
@@ -201,7 +200,7 @@ function generateLedgerFeed() {
     const actor = type === 'webhook_received' ? GATEWAYS[Math.floor(seededRandom() * GATEWAYS.length)] :
                   type === 'hold_created' ? 'API' :
                   type === 'callback_delivered' ? 'delivery' : 'stabilizer'
-    let detail = ''
+    let detail
     
     if (type === 'state_transition') {
       const from = ['VERIFYING', 'PENDING'][Math.floor(seededRandom() * 2)]

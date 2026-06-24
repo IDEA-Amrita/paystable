@@ -11,6 +11,9 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/IDEA-Amrita/paystable/internal/alert"
+	"github.com/IDEA-Amrita/paystable/internal/metrics"
 )
 
 // Config holds delivery-specific tunables pulled from the parent config
@@ -255,6 +258,8 @@ func exhaustRow(ctx context.Context, db *sql.DB, row outboxRow, reason string) e
 
 	slog.Error("delivery: exhausted, ops investigation required",
 		"txn_id", row.TxnID, "idempotency_key", row.IdempotencyKey, "reason", reason)
+	metrics.OutboxDeliveryFailures.Inc()
+	alert.New().Send(ctx, alert.Error, fmt.Sprintf("callback delivery exhausted for %s: %s", row.TxnID, reason))
 
 	return tx.Commit()
 }

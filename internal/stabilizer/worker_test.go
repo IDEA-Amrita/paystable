@@ -76,6 +76,18 @@ func seedPoll(t *testing.T, db *sql.DB, txnID string, attempt int) int64 {
 	return id
 }
 
+func seedCompletedPoll(t *testing.T, db *sql.DB, txnID string, attempt int, status string, amount int64) {
+	t.Helper()
+	_, err := db.Exec(`
+		INSERT INTO verification_polls
+		    (txn_id, attempt_number, scheduled_at, status, gateway_status, gateway_amount, completed_at)
+		VALUES ($1, $2, now(), 'completed', $3, $4, now() - ($5 * interval '1 second'))
+	`, txnID, attempt, status, amount, 10-attempt)
+	if err != nil {
+		t.Fatalf("seedCompletedPoll(%s, attempt=%d): %v", txnID, attempt, err)
+	}
+}
+
 // holdStatus fetches the current status of a hold.
 func holdStatus(t *testing.T, db *sql.DB, txnID string) string {
 	t.Helper()
@@ -177,13 +189,14 @@ func pollRow(id int64, txnID string, attempt int, gw string, holdAmount int64) s
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
-//  1. Success + amount match → hold is CONFIRMED immediately, lag is recorded,
-//     outbox fires transaction.CONFIRMED, ledger has CONFIRMED entry.
+// 1. Success + amount match after a stable streak → hold is CONFIRMED.
 func TestProcessPoll_SuccessAmountMatch_Confirmed(t *testing.T) {
 	db := openWorkerTestDB(t)
 	txnID := fmt.Sprintf("wp_success_%d", time.Now().UnixNano())
 	seedHold(t, db, txnID, "payu", 10000)
-	pollID := seedPoll(t, db, txnID, 1)
+	seedCompletedPoll(t, db, txnID, 1, "success", 10000)
+	seedCompletedPoll(t, db, txnID, 2, "success", 10000)
+	pollID := seedPoll(t, db, txnID, 3)
 
 	// Seed rate_limits so AcquireToken succeeds.
 	db.Exec("DELETE FROM rate_limits WHERE gateway='payu'")                                                                               //nolint:errcheck
@@ -193,7 +206,7 @@ func TestProcessPoll_SuccessAmountMatch_Confirmed(t *testing.T) {
 	lag := NewLagEstimator()
 	cfg := defaultCfg()
 
-	p := pollRow(pollID, txnID, 1, "payu", 10000)
+	p := pollRow(pollID, txnID, 3, "payu", 10000)
 	processPoll(context.Background(), db, cfg, lag, p, mockFactory("payu", mc))
 	time.Sleep(100 * time.Millisecond) // let goroutine complete
 
@@ -215,8 +228,7 @@ func TestProcessPoll_SuccessAmountMatch_Confirmed(t *testing.T) {
 	}
 }
 
-//  2. Success but AMOUNT MISMATCH → hold is INDETERMINATE, NOT CONFIRMED.
-//     Polling stops; outbox fires transaction.INDETERMINATE.
+// 2. Success but AMOUNT MISMATCH → hold is MISMATCH, NOT CONFIRMED.
 func TestProcessPoll_SuccessAmountMismatch_Indeterminate(t *testing.T) {
 	db := openWorkerTestDB(t)
 	txnID := fmt.Sprintf("wp_mismatch_%d", time.Now().UnixNano())
@@ -233,15 +245,15 @@ func TestProcessPoll_SuccessAmountMismatch_Indeterminate(t *testing.T) {
 	processPoll(context.Background(), db, defaultCfg(), lag, p, mockFactory("payu", mc))
 	time.Sleep(100 * time.Millisecond)
 
-	if got := holdStatus(t, db, txnID); got != "INDETERMINATE" {
-		t.Errorf("hold status = %q, want INDETERMINATE (amount mismatch must never CONFIRM)", got)
+	if got := holdStatus(t, db, txnID); got != "MISMATCH" {
+		t.Errorf("hold status = %q, want MISMATCH", got)
 	}
 	// No lag sample — we did not confirm.
 	if lag.SampleCount("payu") != 0 {
 		t.Errorf("lag samples = %d, want 0 on mismatch", lag.SampleCount("payu"))
 	}
-	if et := outboxEventType(t, db, txnID); et != "transaction.INDETERMINATE" {
-		t.Errorf("outbox event = %q, want transaction.INDETERMINATE", et)
+	if et := outboxEventType(t, db, txnID); et != "transaction.MISMATCH" {
+		t.Errorf("outbox event = %q, want transaction.MISMATCH", et)
 	}
 }
 
@@ -306,13 +318,12 @@ func TestProcessPoll_GatewayError_SchedulesRetry(t *testing.T) {
 	}
 }
 
-//  5. Attempt 5 (last) fails with gateway error → markHoldExhausted is called,
-//     hold becomes FAILED, ledger + outbox entries written.
+// 5. Final gateway error without a verifiable answer → INDETERMINATE.
 func TestProcessPoll_FinalAttemptGatewayError_Exhausted(t *testing.T) {
 	db := openWorkerTestDB(t)
 	txnID := fmt.Sprintf("wp_exhaust_gw_%d", time.Now().UnixNano())
 	seedHold(t, db, txnID, "payu", 5000)
-	pollID := seedPoll(t, db, txnID, 5) // attempt 5 = last
+	pollID := seedPoll(t, db, txnID, 3)
 
 	db.Exec("DELETE FROM rate_limits WHERE gateway='payu'")                                                                               //nolint:errcheck
 	db.Exec("INSERT INTO rate_limits (gateway,tokens,last_refill) VALUES ('payu',10,now()) ON CONFLICT(gateway) DO UPDATE SET tokens=10") //nolint:errcheck
@@ -320,15 +331,15 @@ func TestProcessPoll_FinalAttemptGatewayError_Exhausted(t *testing.T) {
 	mc := &mockClient{err: fmt.Errorf("gateway timeout")}
 	lag := NewLagEstimator()
 
-	p := pollRow(pollID, txnID, 5, "payu", 5000)
+	p := pollRow(pollID, txnID, 3, "payu", 5000)
 	processPoll(context.Background(), db, defaultCfg(), lag, p, mockFactory("payu", mc))
 	time.Sleep(100 * time.Millisecond)
 
-	if got := holdStatus(t, db, txnID); got != "FAILED" {
-		t.Errorf("hold status = %q, want FAILED after 5th attempt gateway error", got)
+	if got := holdStatus(t, db, txnID); got != "INDETERMINATE" {
+		t.Errorf("hold status = %q, want INDETERMINATE after final gateway error", got)
 	}
-	if et := outboxEventType(t, db, txnID); et != "transaction.FAILED" {
-		t.Errorf("outbox event = %q, want transaction.FAILED", et)
+	if et := outboxEventType(t, db, txnID); et != "transaction.INDETERMINATE" {
+		t.Errorf("outbox event = %q, want transaction.INDETERMINATE", et)
 	}
 	// No new pending poll must be added.
 	if n := countPendingPolls(t, db, txnID); n != 0 {
@@ -336,13 +347,14 @@ func TestProcessPoll_FinalAttemptGatewayError_Exhausted(t *testing.T) {
 	}
 }
 
-//  6. Attempt 5 gateway returns "failed" (non-error, just bad status) →
-//     hold becomes FAILED via markHoldExhausted (no more retries).
+// 6. A stable failed streak becomes FAILED.
 func TestProcessPoll_FinalAttemptNoConsensus_Exhausted(t *testing.T) {
 	db := openWorkerTestDB(t)
 	txnID := fmt.Sprintf("wp_exhaust_nc_%d", time.Now().UnixNano())
 	seedHold(t, db, txnID, "payu", 7500)
-	pollID := seedPoll(t, db, txnID, 5)
+	seedCompletedPoll(t, db, txnID, 1, "failed", 0)
+	seedCompletedPoll(t, db, txnID, 2, "failed", 0)
+	pollID := seedPoll(t, db, txnID, 3)
 
 	db.Exec("DELETE FROM rate_limits WHERE gateway='payu'")                                                                               //nolint:errcheck
 	db.Exec("INSERT INTO rate_limits (gateway,tokens,last_refill) VALUES ('payu',10,now()) ON CONFLICT(gateway) DO UPDATE SET tokens=10") //nolint:errcheck
@@ -350,12 +362,12 @@ func TestProcessPoll_FinalAttemptNoConsensus_Exhausted(t *testing.T) {
 	mc := &mockClient{status: "failed", amount: 0}
 	lag := NewLagEstimator()
 
-	p := pollRow(pollID, txnID, 5, "payu", 7500)
+	p := pollRow(pollID, txnID, 3, "payu", 7500)
 	processPoll(context.Background(), db, defaultCfg(), lag, p, mockFactory("payu", mc))
 	time.Sleep(100 * time.Millisecond)
 
 	if got := holdStatus(t, db, txnID); got != "FAILED" {
-		t.Errorf("hold status = %q, want FAILED after 5th attempt no-success", got)
+		t.Errorf("hold status = %q, want FAILED after stable failure", got)
 	}
 	if n := countPendingPolls(t, db, txnID); n != 0 {
 		t.Errorf("pending polls = %d, want 0 — no more retries after attempt 5", n)
@@ -440,22 +452,22 @@ func TestMarkHoldExhausted_Idempotent(t *testing.T) {
 	}
 }
 
-// 10. markHoldIndeterminate: amount mismatch writes correct detail to ledger.
+// 10. markHoldMismatch: amount mismatch writes correct detail to ledger.
 func TestMarkHoldIndeterminate_LedgerDetail(t *testing.T) {
 	db := openWorkerTestDB(t)
 	txnID := fmt.Sprintf("wp_indet_%d", time.Now().UnixNano())
 	seedHold(t, db, txnID, "payu", 10000)
 
-	if err := markHoldIndeterminate(context.Background(), db, txnID, 500, 10000); err != nil {
-		t.Fatalf("markHoldIndeterminate: %v", err)
+	if err := markHoldMismatch(context.Background(), db, txnID, 500, 10000); err != nil {
+		t.Fatalf("markHoldMismatch: %v", err)
 	}
 
-	if got := holdStatus(t, db, txnID); got != "INDETERMINATE" {
-		t.Errorf("hold status = %q, want INDETERMINATE", got)
+	if got := holdStatus(t, db, txnID); got != "MISMATCH" {
+		t.Errorf("hold status = %q, want MISMATCH", got)
 	}
 
 	var rawDetail string
-	db.QueryRow("SELECT detail::text FROM ledger WHERE txn_id=$1 AND to_status='INDETERMINATE'", txnID).Scan(&rawDetail) //nolint:errcheck
+	db.QueryRow("SELECT detail::text FROM ledger WHERE txn_id=$1 AND to_status='MISMATCH'", txnID).Scan(&rawDetail) //nolint:errcheck
 
 	var detail map[string]interface{}
 	if err := json.Unmarshal([]byte(rawDetail), &detail); err != nil {
@@ -474,12 +486,12 @@ func TestMarkHoldIndeterminate_LedgerDetail(t *testing.T) {
 
 // 11. isSuccessStatus: covers all known success strings and rejects others.
 func TestIsSuccessStatus(t *testing.T) {
-	for _, s := range []string{"success", "captured", "completed"} {
+	for _, s := range []string{"success", "captured", "completed", "SUCCESS"} {
 		if !isSuccessStatus(s) {
 			t.Errorf("isSuccessStatus(%q) = false, want true", s)
 		}
 	}
-	for _, s := range []string{"failed", "failure", "pending", "not_found", "", "SUCCESS"} {
+	for _, s := range []string{"failed", "failure", "pending", "not_found", ""} {
 		if isSuccessStatus(s) {
 			t.Errorf("isSuccessStatus(%q) = true, want false", s)
 		}

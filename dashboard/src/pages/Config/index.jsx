@@ -109,7 +109,6 @@ export default function Config() {
   }
 
   const secretRows  = (config || []).filter(c => c.is_secret)
-  const publicRows  = (config || []).filter(c => !c.is_secret)
   const unsetSecrets = secretRows.filter(c => !c.is_set)
 
   return (

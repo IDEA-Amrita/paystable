@@ -16,6 +16,7 @@ type Config struct {
 	PayuStatusURL          string
 	MerchantCallbackSecret string
 	AdminAPIKey            string
+	SecretEncryptionKey    string
 	Port                   string
 	StabilizationN         int
 	MaxBackoffS            int
@@ -25,19 +26,21 @@ type Config struct {
 	DeliveryConcurrency    int
 	DeliveryAllowInsecure  bool
 }
-//1)StabilizationN:What: number of consecutive agreeing verification polls required to declare a terminal state (default 3)
-//2)MaxBackoffS:What: maximum backoff time in seconds for retry attempts (default 160)// per-attempt cap, not a cumulative cap,eg for 160=>stops at 160s not when cumSum is 160s
-//3)HoldMaxTTLS:What: is the absolute lifetime (seconds) of a hold from creation → expires_at(default 900)
-//so when it checking reaches with MaxBackoffS it doesnt expand from there rather maintain there itself.But when cumSum of time taken exceeds HoldMaxTTLS,the checking break.from there it will see last N transactions(StabilizationN) n based on thatitss say whether success or failure
+
+// 1)StabilizationN:What: number of consecutive agreeing verification polls required to declare a terminal state (default 3)
+// 2)MaxBackoffS:What: maximum backoff time in seconds for retry attempts (default 160)// per-attempt cap, not a cumulative cap,eg for 160=>stops at 160s not when cumSum is 160s
+// 3)HoldMaxTTLS:What: is the absolute lifetime (seconds) of a hold from creation → expires_at(default 900)
+// so when it checking reaches with MaxBackoffS it doesnt expand from there rather maintain there itself.But when cumSum of time taken exceeds HoldMaxTTLS,the checking break.from there it will see last N transactions(StabilizationN) n based on thatitss say whether success or failure
 func Load() (*Config, error) {
 	loadDotEnv()
 
 	c := &Config{
-		Port:           envOr("PORT", "8080"),
-		StabilizationN: envIntOr("STABILIZATION_N", 3),
-		MaxBackoffS:    envIntOr("MAX_BACKOFF_S", 160),
-		HoldMaxTTLS:    envIntOr("HOLD_MAX_TTL_S", 900),
-		LogLevel:       envOr("LOG_LEVEL", "info"),
+		Port:                  envOr("PORT", "8080"),
+		StabilizationN:        envIntOr("STABILIZATION_N", 3),
+		MaxBackoffS:           envIntOr("MAX_BACKOFF_S", 160),
+		HoldMaxTTLS:           envIntOr("HOLD_MAX_TTL_S", 900),
+		LogLevel:              envOr("LOG_LEVEL", "info"),
+		SecretEncryptionKey:   envOr("SECRET_ENCRYPTION_KEY", ""),
 		DeliveryTimeoutS:      envIntOr("DELIVERY_TIMEOUT_S", 10),
 		DeliveryConcurrency:   envIntOr("DELIVERY_WORKER_CONCURRENCY", 20),
 		DeliveryAllowInsecure: os.Getenv("DELIVERY_ALLOW_INSECURE_CALLBACK") == "true",

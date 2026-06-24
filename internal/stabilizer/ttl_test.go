@@ -83,7 +83,7 @@ func TestResolveExpiredHold_SuccessMatch_Confirmed(t *testing.T) {
 	}
 }
 
-func TestResolveExpiredHold_SuccessAmountMismatch_Indeterminate(t *testing.T) {
+func TestResolveExpiredHold_SuccessAmountMismatch_Mismatch(t *testing.T) {
 	db := ttlTestDB(t)
 	txnID := seedExpiredHold(t, db, 49900)
 
@@ -91,8 +91,8 @@ func TestResolveExpiredHold_SuccessAmountMismatch_Indeterminate(t *testing.T) {
 		expiredHold{TxnID: txnID, Gateway: "payu", Amount: 49900},
 		factory(fakeClient{status: "success", amount: 25000}))
 
-	if got := holdStatusOf(t, db, txnID); got != "INDETERMINATE" {
-		t.Errorf("status = %q, want INDETERMINATE", got)
+	if got := holdStatusOf(t, db, txnID); got != "MISMATCH" {
+		t.Errorf("status = %q, want MISMATCH", got)
 	}
 }
 

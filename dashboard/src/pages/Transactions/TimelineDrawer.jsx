@@ -18,6 +18,7 @@ const STATE_COLORS = {
   CONFIRMED:     'text-status-green',
   FAILED:        'text-status-red',
   INDETERMINATE: 'text-status-purple',
+  MISMATCH:      'text-status-purple',
   REFUNDED:      'text-status-cyan',
 }
 
@@ -46,7 +47,7 @@ function buildVerdict(txn) {
       color: 'text-status-red',
     }
   }
-  if (finalStatus === 'INDETERMINATE') {
+  if (finalStatus === 'INDETERMINATE' || finalStatus === 'MISMATCH') {
     return {
       text: 'Amount mismatch or inconclusive verification. Requires manual investigation.',
       color: 'text-status-yellow',

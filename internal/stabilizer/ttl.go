@@ -99,8 +99,8 @@ func resolveExpiredHold(ctx context.Context, db *sql.DB, h expiredHold, clientFa
 			slog.Error("ttl scanner: finalize", "error", err, "txn", h.TxnID)
 		}
 	case isSuccessStatus(status):
-		if err := markHoldIndeterminate(ctx, db, h.TxnID, amount, h.Amount); err != nil {
-			slog.Error("ttl scanner: mark indeterminate (amount)", "error", err, "txn", h.TxnID)
+		if err := markHoldMismatch(ctx, db, h.TxnID, amount, h.Amount); err != nil {
+			slog.Error("ttl scanner: mark mismatch", "error", err, "txn", h.TxnID)
 		}
 	case status == "failed" || status == "failure":
 		if err := markHoldExhausted(ctx, db, h.TxnID, "ttl_expired_verified_failed"); err != nil {

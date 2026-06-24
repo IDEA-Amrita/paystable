@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/IDEA-Amrita/paystable/internal/secrets"
 )
 
 // A mismatch is a transaction whose first webhook claimed failure but which
@@ -88,6 +90,7 @@ func (h *Handler) config(w http.ResponseWriter, r *http.Request) {
 		secret("WEBHOOK_SECRET", h.cfg.WebhookSecret),
 		secret("GATEWAY_API_KEY", h.cfg.GatewayAPIKey),
 		secret("MERCHANT_CALLBACK_SECRET", h.cfg.MerchantCallbackSecret),
+		secret("SECRET_ENCRYPTION_KEY", h.cfg.SecretEncryptionKey),
 	})
 }
 
@@ -151,13 +154,65 @@ func (h *Handler) rotateSecret(w http.ResponseWriter, r *http.Request) {
 	if req.WindowHours <= 0 {
 		req.WindowHours = 24
 	}
-	// Encrypt with AES-256-GCM — for now store as plain bytes (TODO: real encryption)
-	windowEnd := time.Now().Add(time.Duration(req.WindowHours) * time.Hour)
-	_, err := h.db.ExecContext(ctx,
-		`INSERT INTO gateway_secrets (gateway, secret_encrypted, rotation_window_end)
-		 VALUES ($1, $2, $3)`,
-		req.Gateway, []byte(req.NewSecret), windowEnd)
+	key, err := secrets.ParseKey(h.cfg.SecretEncryptionKey)
 	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "SECRET_ENCRYPTION_KEY is required for rotation"})
+		return
+	}
+	windowEnd := time.Now().Add(time.Duration(req.WindowHours) * time.Hour)
+	newCiphertext, err := secrets.Encrypt([]byte(req.NewSecret), key)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "encrypt new secret failed"})
+		return
+	}
+	currentCiphertext, err := secrets.Encrypt([]byte(h.cfg.WebhookSecret), key)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "encrypt current secret failed"})
+		return
+	}
+
+	tx, err := h.db.BeginTx(ctx, nil)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var activeCount int
+	if err := tx.QueryRowContext(ctx, `
+		SELECT count(*) FROM gateway_secrets
+		WHERE gateway=$1 AND is_active=true
+		  AND (rotation_window_end IS NULL OR rotation_window_end > now())`, req.Gateway).Scan(&activeCount); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if activeCount == 0 {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO gateway_secrets (gateway, secret_encrypted, rotation_window_end)
+			 VALUES ($1, $2, $3)`,
+			req.Gateway, currentCiphertext, windowEnd); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+	} else {
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE gateway_secrets
+			 SET rotation_window_end=$2
+			 WHERE gateway=$1 AND is_active=true AND rotation_window_end IS NULL`,
+			req.Gateway, windowEnd); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO gateway_secrets (gateway, secret_encrypted, rotation_window_end)
+		 VALUES ($1, $2, NULL)`,
+		req.Gateway, newCiphertext); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := tx.Commit(); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
@@ -249,6 +304,9 @@ func (h *Handler) updateConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	if val, ok := req["MERCHANT_CALLBACK_SECRET"]; ok {
 		h.cfg.MerchantCallbackSecret = val
+	}
+	if val, ok := req["SECRET_ENCRYPTION_KEY"]; ok {
+		h.cfg.SecretEncryptionKey = val
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "message": "Configuration updated successfully"})

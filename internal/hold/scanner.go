@@ -25,7 +25,7 @@ func StartExpiryScanner(ctx context.Context, db *sql.DB, clientFactory func(stri
 		case <-ctx.Done():
 			slog.Info("hold expiry scanner stopping")
 			return
-		case <-ticker.C://communication channel for ticker
+		case <-ticker.C: //communication channel for ticker
 			scanExpiredHolds(ctx, db, clientFactory)
 		}
 	}
@@ -51,7 +51,7 @@ func scanExpiredHolds(ctx context.Context, db *sql.DB, clientFactory func(string
 		FOR UPDATE OF holds SKIP LOCKED`)
 	if err != nil {
 		slog.Error("expiry scanner: query failed", "error", err)
-		_ = tx.Rollback() 
+		_ = tx.Rollback()
 		return
 	}
 
@@ -78,7 +78,7 @@ func scanExpiredHolds(ctx context.Context, db *sql.DB, clientFactory func(string
 	}
 
 	if len(batch) == 0 {
-		_ = tx.Rollback() 
+		_ = tx.Rollback()
 		return
 	}
 
@@ -120,14 +120,14 @@ Loop:
 	wg.Wait() // wait for all goroutines to finish before returning
 }
 
-//3)processExpiredHold performs a final status check on a single expired hold
+// 3)processExpiredHold performs a final status check on a single expired hold
 // by querying the external gateway and resolving the hold state accordingly.
 func processExpiredHold(ctx context.Context, db *sql.DB, clientFactory func(string) gateway.GatewayClient, txnID, gw string, holdAmount int64) {
 	client := clientFactory(gw)
 	if client == nil {
 		slog.Error("expiry scanner: no client for gateway", "gateway", gw, "txn_id", txnID)
-		if err := finalizeAsFailed(ctx, db, txnID, "no_gateway_client"); err != nil {
-			slog.Error("expiry scanner: finalizeAsFailed failed", "txn_id", txnID, "error", err)
+		if err := finalizeAsIndeterminate(ctx, db, txnID, "no_gateway_client", 0, holdAmount); err != nil {
+			slog.Error("expiry scanner: finalizeAsIndeterminate failed", "txn_id", txnID, "error", err)
 		}
 		return
 	}
@@ -138,8 +138,8 @@ func processExpiredHold(ctx context.Context, db *sql.DB, clientFactory func(stri
 	gatewayStatus, gatewayAmount, _, err := client.Status(cctx, txnID)
 	if err != nil {
 		slog.Error("expiry scanner: gateway call failed", "txn_id", txnID, "error", err)
-		if err2 := finalizeAsFailed(ctx, db, txnID, "gateway_error: "+err.Error()); err2 != nil {
-			slog.Error("expiry scanner: finalizeAsFailed failed", "txn_id", txnID, "error", err2)
+		if err2 := finalizeAsIndeterminate(ctx, db, txnID, "gateway_error", 0, holdAmount); err2 != nil {
+			slog.Error("expiry scanner: finalizeAsIndeterminate failed", "txn_id", txnID, "error", err2)
 		}
 		return
 	}
@@ -153,19 +153,24 @@ func processExpiredHold(ctx context.Context, db *sql.DB, clientFactory func(stri
 			slog.Error("expiry scanner: finalizeAsConfirmed failed", "txn_id", txnID, "error", err)
 		}
 	case isSuccess(gatewayStatus) && gatewayAmount != holdAmount:
-		// Gateway says success but the amount is wrong — needs ops investigation.
-		if err := finalizeAsIndeterminate(ctx, db, txnID, gatewayAmount, holdAmount); err != nil {
-			slog.Error("expiry scanner: finalizeAsIndeterminate failed", "txn_id", txnID, "error", err)
+		if err := finalizeAsMismatch(ctx, db, txnID, gatewayAmount, holdAmount); err != nil {
+			slog.Error("expiry scanner: finalizeAsMismatch failed", "txn_id", txnID, "error", err)
 		}
 	default:
-		// Gateway says failed / pending / unknown — TTL has expired, so FAILED.
-		if err := finalizeAsFailed(ctx, db, txnID, "ttl_expired_gateway_status: "+gatewayStatus); err != nil {
-			slog.Error("expiry scanner: finalizeAsFailed failed", "txn_id", txnID, "error", err)
+		reason := "ttl_expired_gateway_status: " + gatewayStatus
+		if gatewayStatus == "failed" || gatewayStatus == "failure" {
+			if err := finalizeAsFailed(ctx, db, txnID, reason); err != nil {
+				slog.Error("expiry scanner: finalizeAsFailed failed", "txn_id", txnID, "error", err)
+			}
+			return
+		}
+		if err := finalizeAsIndeterminate(ctx, db, txnID, reason, gatewayAmount, holdAmount); err != nil {
+			slog.Error("expiry scanner: finalizeAsIndeterminate failed", "txn_id", txnID, "error", err)
 		}
 	}
 }
 
-//4) isSuccess returns true if the status received from the external gateway
+// 4) isSuccess returns true if the status received from the external gateway
 // represents a final successful payment status (e.g., success, captured).
 func isSuccess(s string) bool {
 	switch s {
@@ -196,7 +201,7 @@ func finalizeAsConfirmed(ctx context.Context, db *sql.DB, txnID string) error {
 	})
 }
 
-//6)finalizeAsFailed transitions the expired hold to FAILED and enqueues
+// 6)finalizeAsFailed transitions the expired hold to FAILED and enqueues
 // a failure event in the outbox table to notify the client application.
 func finalizeAsFailed(ctx context.Context, db *sql.DB, txnID, reason string) error {
 	return finalizeHold(ctx, db, txnID, "FAILED", reason, func(tx *sql.Tx) error {
@@ -218,33 +223,39 @@ func finalizeAsFailed(ctx context.Context, db *sql.DB, txnID, reason string) err
 	})
 }
 
-//7)finalizeAsIndeterminate transitions the hold to INDETERMINATE when the payment
+// 7)finalizeAsIndeterminate transitions the hold to INDETERMINATE when the payment
 // amount reported by the gateway does not match the expected hold amount.
-func finalizeAsIndeterminate(ctx context.Context, db *sql.DB, txnID string, gatewayAmount, holdAmount int64) error {
-	reason := "amount_mismatch"
-	return finalizeHold(ctx, db, txnID, "INDETERMINATE", reason, func(tx *sql.Tx) error {
+func finalizeAsMismatch(ctx context.Context, db *sql.DB, txnID string, gatewayAmount, holdAmount int64) error {
+	return finalizeWithReview(ctx, db, txnID, "MISMATCH", "amount_mismatch", gatewayAmount, holdAmount)
+}
+
+func finalizeAsIndeterminate(ctx context.Context, db *sql.DB, txnID, reason string, gatewayAmount, holdAmount int64) error {
+	return finalizeWithReview(ctx, db, txnID, "INDETERMINATE", reason, gatewayAmount, holdAmount)
+}
+
+func finalizeWithReview(ctx context.Context, db *sql.DB, txnID, status, reason string, gatewayAmount, holdAmount int64) error {
+	return finalizeHold(ctx, db, txnID, status, reason, func(tx *sql.Tx) error {
 		payloadBytes, err := json.Marshal(struct {
 			TxnID         string `json:"txn_id"`
 			Status        string `json:"status"`
 			Reason        string `json:"reason"`
 			GatewayAmount int64  `json:"gateway_amount"`
 			HoldAmount    int64  `json:"hold_amount"`
-		}{TxnID: txnID, Status: "INDETERMINATE", Reason: reason, GatewayAmount: gatewayAmount, HoldAmount: holdAmount})
+		}{TxnID: txnID, Status: status, Reason: reason, GatewayAmount: gatewayAmount, HoldAmount: holdAmount})
 		if err != nil {
 			return fmt.Errorf("marshal payload: %w", err)
 		}
-		idempotency := "evt_" + txnID + "_INDETERMINATE"
+		idempotency := "evt_" + txnID + "_" + status
 		_, err = tx.ExecContext(ctx,
 			`INSERT INTO outbox (txn_id, event_type, payload, idempotency_key, next_attempt_at)
-			 VALUES ($1, 'transaction.INDETERMINATE', $2, $3, now())
+			 VALUES ($1, $2, $3, $4, now())
 			 ON CONFLICT (idempotency_key) DO NOTHING`,
-			txnID, json.RawMessage(payloadBytes), idempotency)
+			txnID, "transaction."+status, json.RawMessage(payloadBytes), idempotency)
 		return err
 	})
 }
 
-
-//8)finalizeHold is a helper that wraps the database state transitions, ledger logging,
+// 8)finalizeHold is a helper that wraps the database state transitions, ledger logging,
 // and event queue writing in a single, safe transaction.
 func finalizeHold(ctx context.Context, db *sql.DB, txnID, toStatus, reason string, writeOutbox func(*sql.Tx) error) error {
 	tx, err := db.BeginTx(ctx, nil)
@@ -261,7 +272,7 @@ func finalizeHold(ctx context.Context, db *sql.DB, txnID, toStatus, reason strin
 
 	// Already finalised by another path (stabilizer, manual ops, etc.) — skip.
 	switch fromStatus {
-	case "CONFIRMED", "FAILED", "REFUNDED", "INDETERMINATE":
+	case "CONFIRMED", "FAILED", "REFUNDED", "INDETERMINATE", "MISMATCH":
 		slog.Info("expiry scanner: hold already finalised, skipping",
 			"txn_id", txnID, "current_status", fromStatus)
 		return tx.Commit()

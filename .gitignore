@@ -34,6 +34,13 @@ coverage.html
 docker-compose.override.yml
 
 node_modules/
+.vite/
+dashboard/.vite/
 
 # Docs site
 /docs-site/
+
+# Local notes / generated test binaries
+/scenarios
+/docs/developer-guide.md
+/docs/product-gap-analysis.md

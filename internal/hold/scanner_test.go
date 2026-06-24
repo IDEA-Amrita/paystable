@@ -114,7 +114,7 @@ func TestScannerFailedOnGatewayFailed(t *testing.T) {
 	assertLedgerSource(t, db, txnID)
 }
 
-// TestCase3: Hold expires, gateway call returns error/timeout → FAILED.
+// TestCase3: Hold expires, gateway call returns error/timeout → INDETERMINATE.
 func TestScannerFailedOnGatewayError(t *testing.T) {
 	db, txnID := setupScannerTestDB(t, "PENDING")
 
@@ -123,12 +123,12 @@ func TestScannerFailedOnGatewayError(t *testing.T) {
 	}
 	scanExpiredHolds(context.Background(), db, factory)
 
-	assertHoldStatus(t, db, txnID, "FAILED")
-	assertOutboxEvent(t, db, txnID, "transaction.FAILED")
+	assertHoldStatus(t, db, txnID, "INDETERMINATE")
+	assertOutboxEvent(t, db, txnID, "transaction.INDETERMINATE")
 	assertLedgerSource(t, db, txnID)
 }
 
-// TestCase4: Hold expires, gateway says success but amount mismatches → INDETERMINATE.
+// TestCase4: Hold expires, gateway says success but amount mismatches → MISMATCH.
 func TestScannerIndeterminateOnAmountMismatch(t *testing.T) {
 	db, txnID := setupScannerTestDB(t, "PENDING")
 
@@ -138,8 +138,8 @@ func TestScannerIndeterminateOnAmountMismatch(t *testing.T) {
 	}
 	scanExpiredHolds(context.Background(), db, factory)
 
-	assertHoldStatus(t, db, txnID, "INDETERMINATE")
-	assertOutboxEvent(t, db, txnID, "transaction.INDETERMINATE")
+	assertHoldStatus(t, db, txnID, "MISMATCH")
+	assertOutboxEvent(t, db, txnID, "transaction.MISMATCH")
 	assertLedgerSource(t, db, txnID)
 }
 

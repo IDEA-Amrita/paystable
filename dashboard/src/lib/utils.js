@@ -61,6 +61,7 @@ const STATUS_LABELS = {
   CONFIRMED:     'Paid',
   FAILED:        'Failed',
   INDETERMINATE: 'Needs attention',
+  MISMATCH:      'Amount mismatch',
   REFUNDED:      'Refunded',
 }
 
@@ -70,6 +71,7 @@ const STATUS_MEANINGS = {
   CONFIRMED:     'Payment went through. The customer was charged.',
   FAILED:        'Payment did not go through. Safe to let the customer retry.',
   INDETERMINATE: 'Something looked wrong (often a mismatched amount). A human should check this.',
+  MISMATCH:      'The gateway amount does not match the hold amount.',
   REFUNDED:      'Payment was reversed.',
 }
 

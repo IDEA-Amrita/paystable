@@ -9,6 +9,7 @@ GATEWAY_API_KEY=your_payu_merchant_key_here
 PAYU_STATUS_URL=https://info.payu.in/merchant/postservice.php?form=2
 MERCHANT_CALLBACK_SECRET=secret_for_signing_outbound_callbacks
 ADMIN_API_KEY=secret_for_admin_endpoints
+SECRET_ENCRYPTION_KEY=32_byte_base64_hex_or_raw_key
 
 #optional (defaults shown)
 #PORT=8080

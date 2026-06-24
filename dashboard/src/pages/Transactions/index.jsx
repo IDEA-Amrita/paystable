@@ -12,6 +12,7 @@ const STATUS_COLORS = {
   CONFIRMED:     'text-status-green',
   FAILED:        'text-status-red',
   INDETERMINATE: 'text-status-purple',
+  MISMATCH:      'text-status-purple',
   REFUNDED:      'text-status-cyan',
 }
 
@@ -78,7 +79,7 @@ export default function Transactions() {
   }
 
   const totalPages = Math.ceil(total / 25)
-  const statuses = ['all', 'PENDING', 'VERIFYING', 'CONFIRMED', 'FAILED', 'INDETERMINATE', 'REFUNDED']
+  const statuses = ['all', 'PENDING', 'VERIFYING', 'CONFIRMED', 'FAILED', 'INDETERMINATE', 'MISMATCH', 'REFUNDED']
 
   return (
     <div className="space-y-4">
