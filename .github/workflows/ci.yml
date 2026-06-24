@@ -43,7 +43,7 @@ jobs:
       - run: go test -race -coverprofile=coverage.out ./...
         env:
           DATABASE_URL: postgres://paystable:paystable@localhost:5432/paystable_test?sslmode=disable
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: coverage
           path: coverage.out
