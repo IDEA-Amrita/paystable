@@ -53,7 +53,7 @@ func (h *Handler) deliveries(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err := h.db.QueryContext(ctx, `
-		SELECT id, txn_id, event_type, attempts, max_attempts,
+		SELECT o.id, o.txn_id, o.event_type, o.attempts, o.max_attempts,
 		       coalesce(last_error,''), last_attempt_at, h.callback_url
 		FROM outbox o
 		JOIN holds h ON o.txn_id = h.txn_id
