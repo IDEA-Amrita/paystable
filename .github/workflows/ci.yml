@@ -14,6 +14,7 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+          cache: false
       - uses: golangci/golangci-lint-action@v9
         with:
           version: latest
@@ -40,6 +41,7 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+          cache: false
       - run: go test -race -coverprofile=coverage.out ./...
         env:
           DATABASE_URL: postgres://paystable:paystable@localhost:5432/paystable_test?sslmode=disable
@@ -72,5 +74,6 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+          cache: false
       - run: go build -o paystable ./cmd/paystable
       - run: docker build -t paystable:ci .
