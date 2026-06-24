@@ -1,0 +1,7 @@
+.astro/
+.vercel/
+dist/
+node_modules/
+.env*
+bun.lock
+bun.lockb
