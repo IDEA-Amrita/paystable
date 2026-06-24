@@ -1,0 +1,210 @@
+:root {
+  --sl-content-width: 52rem;
+  --sl-text-5xl: 3.1rem;
+  --sl-color-accent-low: #dbeafe;
+  --sl-color-accent: #2563eb;
+  --sl-color-accent-high: #1e3a8a;
+}
+
+:root[data-theme="dark"] {
+  --sl-color-accent-low: #12213f;
+  --sl-color-accent: #60a5fa;
+  --sl-color-accent-high: #dbeafe;
+}
+
+html:not([data-has-sidebar]):root {
+  --sl-content-width: 52rem;
+}
+
+html,
+body {
+  overflow-x: hidden;
+}
+
+.content-panel {
+  max-width: 100vw;
+}
+
+.content-panel .sl-container {
+  width: min(var(--sl-content-width), calc(100vw - 2 * var(--sl-content-pad-x)));
+  max-width: calc(100vw - 2 * var(--sl-content-pad-x));
+}
+
+html[data-has-hero] .hero {
+  padding-block: clamp(3rem, 7vw, 6rem);
+  width: 100%;
+  max-width: 100%;
+}
+
+html[data-has-hero] .hero .tagline {
+  max-width: 760px;
+  color: var(--sl-color-gray-2);
+}
+
+html[data-has-hero] .hero .stack,
+html[data-has-hero] .hero .copy,
+html[data-has-hero] .hero .tagline,
+html[data-has-hero] .hero .actions {
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+}
+
+html[data-has-hero] .hero .copy > * {
+  width: 100%;
+  max-width: min(100%, 50ch);
+}
+
+html[data-has-hero] .hero .actions {
+  row-gap: 0.75rem;
+}
+
+.truth-panel {
+  margin: 1rem 0 2rem;
+  padding: 1.25rem 1.4rem;
+  border: 1px solid var(--sl-color-gray-5);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--sl-color-bg-sidebar) 70%, transparent);
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow-wrap: anywhere;
+}
+
+.truth-panel .eyebrow,
+.signal-label {
+  margin: 0 0 0.45rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  color: var(--sl-color-accent);
+}
+
+.truth-panel h2 {
+  margin-top: 0;
+  font-size: clamp(1.45rem, 3vw, 2rem);
+}
+
+.truth-panel p {
+  margin-bottom: 0;
+  color: var(--sl-color-gray-2);
+}
+
+.truth-panel h2,
+.truth-panel p,
+.signal-card h3,
+.signal-card p {
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.signal-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr));
+  gap: 1rem;
+  margin: 2rem 0;
+  width: 100%;
+  max-width: 100%;
+}
+
+.signal-card {
+  display: block;
+  min-width: 0;
+  min-height: 13rem;
+  padding: 1.15rem;
+  border: 1px solid var(--sl-color-gray-5);
+  border-radius: 8px;
+  background: var(--sl-color-bg-sidebar);
+  color: inherit;
+  text-decoration: none;
+  width: 100%;
+  box-sizing: border-box;
+  overflow-wrap: anywhere;
+}
+
+.signal-card:hover {
+  border-color: var(--sl-color-accent);
+}
+
+.signal-card h3 {
+  margin: 0 0 0.65rem;
+  font-size: 1.05rem;
+}
+
+.signal-card p {
+  margin: 0;
+  color: var(--sl-color-gray-2);
+}
+
+table {
+  font-size: 0.94rem;
+}
+
+code {
+  border-radius: 5px;
+}
+
+.content-panel .sl-container,
+.sl-markdown-content {
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+}
+
+.sl-markdown-content ul,
+.sl-markdown-content ol {
+  line-height: 1.7;
+}
+
+@media (max-width: 44rem) {
+  :root {
+    --sl-text-5xl: 2.55rem;
+  }
+
+  html[data-has-hero] .hero {
+    padding-block: 2.5rem 2rem;
+  }
+
+  html[data-has-hero] .hero .actions {
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.65rem 1rem;
+  }
+
+  html[data-has-hero] .hero .action {
+    justify-content: center;
+    max-width: 100%;
+  }
+
+  html[data-has-hero] .hero .tagline {
+    max-width: 28ch;
+  }
+
+  .content-panel .sl-container {
+    width: calc(100vw - 3rem);
+    max-width: calc(100vw - 3rem);
+  }
+
+  .truth-panel h2 {
+    font-size: 1.35rem;
+    max-width: 28ch;
+  }
+
+  .truth-panel {
+    padding: 0.95rem;
+    max-width: calc(100vw - 3rem);
+  }
+
+  .truth-panel p,
+  .signal-card h3,
+  .signal-card p {
+    max-width: 29ch;
+  }
+
+  .signal-card {
+    padding: 0.95rem;
+    max-width: calc(100vw - 3rem);
+  }
+}

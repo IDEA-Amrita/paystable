@@ -70,7 +70,7 @@ const STATUS_MEANINGS = {
   VERIFYING:     'Confirming with the bank before we trust the result.',
   CONFIRMED:     'Payment went through. The customer was charged.',
   FAILED:        'Payment did not go through. Safe to let the customer retry.',
-  INDETERMINATE: 'Something looked wrong (often a mismatched amount). A human should check this.',
+  INDETERMINATE: 'Paystable could not reach a safe answer automatically. A human should check this.',
   MISMATCH:      'The gateway amount does not match the hold amount.',
   REFUNDED:      'Payment was reversed.',
 }

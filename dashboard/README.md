@@ -1,16 +1,52 @@
-# React + Vite
+# Paystable Dashboard
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+The dashboard is a Vite/React app embedded into the Go binary at build time. It is an ops surface for a single Paystable instance, not a public merchant portal.
 
-Currently, two official plugins are available:
+## Local Development
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+```bash
+cd dashboard
+npm ci
+npm run dev
+```
 
-## React Compiler
+Build the embedded assets:
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+```bash
+npm run lint
+npm run build
+cp -r dist ../internal/ui/dist
+```
 
-## Expanding the ESLint configuration
+The release workflow runs the same lint/build step before compiling binaries.
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## Runtime Access
+
+When Paystable runs, the embedded dashboard is served at:
+
+```text
+http://localhost:8080/dashboard
+```
+
+Admin API routes are loopback-only in the backend. Do not expose the dashboard directly to the public internet. Use a VPN, SSH tunnel, or an authenticated reverse proxy if remote access is required.
+
+## Current Views
+
+- Overview: active holds, pending deliveries, exhausted deliveries, rejected webhooks.
+- Transactions: searchable hold list and timeline drawer.
+- Mismatches: webhook-vs-verified disagreements.
+- Deliveries: exhausted callback deliveries and replay action.
+- Config: local config visibility and secret rotation actions.
+- TestKit: local scenario helpers for development.
+
+## UX Direction
+
+Keep this dashboard dense and operational. It should help an engineer or support person answer:
+
+- What is the transaction state?
+- What did the gateway claim?
+- What did Paystable verify?
+- Was the merchant callback delivered?
+- Does this need manual review?
+
+Avoid marketing sections, decorative hero layouts, or copy that implies Paystable is a payment gateway.

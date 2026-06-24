@@ -1,253 +1,189 @@
 # Database Schema
 
-PostgreSQL 16+. Single database, no external queues or caches [atleast for now, don't judge me].
+Paystable uses PostgreSQL as both durable storage and job queue. Migrations run automatically when the binary starts.
 
-Schema is auto-migrated on binary startup. Users never run migrations manually.
+This document describes the schema in the current release, not an aspirational future design.
 
----
+## Design Notes
 
-## Design Decisions
+### Why `holds`?
 
-**Why `holds` and not `transactions`?**
+Paystable does not own the payment. The gateway does. Paystable owns the merchant-side hold on a resource while the payment state is being verified.
 
-Paystable does not own the payment. The gateway does. What paystable owns is the *hold* on a resource (a seat, a subscription slot, an inventory item) while it figures out whether the payment actually went through. The table is named after what it represents in our domain, not the gateway's domain.
+### Why an append-only ledger?
 
-**Why a separate `ledger` table instead of updating `holds` in place?**
+The current state alone is not enough for payment support. The ledger records what the gateway claimed, what Paystable observed, and why a state changed.
 
-The holds table stores current state. The ledger stores history. If you only have current state, you cannot answer "what did the gateway claim at 15:05:03 vs what we verified at 15:05:38?" Debugging payment issues requires the full timeline. The ledger is append-only. No UPDATEs, no DELETEs, ever.
+### Why Postgres job queues?
 
-**Why no separate jobs table?**
+`verification_polls` and `outbox` are claimed with `SELECT ... FOR UPDATE SKIP LOCKED`. This keeps scheduling and business state in the same transaction boundary without Redis, Kafka, or a separate worker queue.
 
-The `outbox` and `verification_polls` tables double as their own job queues using `SELECT ... FOR UPDATE SKIP LOCKED`. A row that needs processing has `status = 'pending'`. A worker picks it up, locks it, processes it, updates the status. One table, one source of truth. This eliminates an entire class of consistency bugs where a job table and a data table disagree.
+## `holds`
 
-**Why store raw webhook payloads as JSONB?**
+One row per merchant checkout attempt.
 
-Gateway payload formats change without notice. If we parse into typed columns and the format changes, we lose data. JSONB preserves the original payload exactly as received. We extract what we need into typed columns alongside it for indexing, but the raw payload is the forensic record.
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `bigint identity primary key` | Internal only. |
+| `txn_id` | `text unique not null` | Merchant-supplied public transaction ID. |
+| `gateway` | `text not null` | Current adapter: `payu`. |
+| `status` | `text not null default 'PENDING'` | `PENDING`, `VERIFYING`, `CONFIRMED`, `FAILED`, `REFUNDED`, `INDETERMINATE`, `MISMATCH`. |
+| `amount` | `bigint not null` | Smallest currency unit, e.g. paise. |
+| `currency` | `text not null default 'INR'` | ISO 4217. |
+| `read_token` | `text unique not null` | Public token for status/SSE reads. |
+| `callback_url` | `text not null` | Merchant callback target. |
+| `metadata` | `jsonb not null default '{}'` | Passed through in callbacks. |
+| `ttl_seconds` | `int not null default 300` | Must be between 30 and 900. |
+| `expires_at` | `timestamptz not null` | TTL deadline. |
+| `created_at` | `timestamptz not null default now()` | Creation time. |
+| `updated_at` | `timestamptz not null default now()` | Updated by transition trigger. |
 
-**Why KSUID for read_token?**
+Indexes:
 
-Read tokens are exposed to frontends for status polling. They need to be unguessable (unlike sequential IDs) but also time-sortable (useful for debugging and log correlation). KSUIDs give both properties in a URL-safe string. UUIDv4 would work for unguessability but loses time ordering.
+- `idx_holds_status` on active states
+- `idx_holds_expires_at` for pending TTL scans
+- `idx_holds_gateway_status`
 
-**Why partition `webhooks` by month?**
+## `webhooks`
 
-Webhook volume scales linearly with transaction volume. A fest doing 10k transactions in 3 days generates 10k+ webhook rows. After 90 days these are only useful for forensics. Monthly partitions let us drop old partitions cleanly without vacuuming a massive table.
+Every valid gateway webhook.
 
----
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `bigint identity primary key` | Internal only. |
+| `txn_id` | `text not null` | Not foreign-keyed in the current migration so early/out-of-order webhooks can be preserved. |
+| `gateway` | `text not null` | Gateway name. |
+| `gateway_event_id` | `text` | Gateway event identifier. |
+| `event_type` | `text not null` | Gateway event label. |
+| `payload` | `jsonb not null` | Raw parsed payload. |
+| `received_at` | `timestamptz not null default now()` | Ingestion time. |
 
-## Tables
+Indexes and constraints:
 
-### holds
+- `idx_webhooks_txn_id`
+- `idx_webhooks_gateway_event_id`
+- `idx_webhooks_received_at`
+- unique `(gateway, gateway_event_id)`
 
-The central record. One row per checkout attempt.
+The table is not partitioned in the current release.
 
-| Column | Type | Constraints | Notes |
-|--------|------|-------------|-------|
-| id | bigint | PK, generated always as identity | Internal ID. Never exposed. |
-| txn_id | text | UNIQUE, NOT NULL | Merchant-provided. Opaque string. This is the public identifier. |
-| gateway | text | NOT NULL | `payu`, `razorpay`, `cashfree`, `phonepe` |
-| status | text | NOT NULL, DEFAULT 'PENDING' | One of: PENDING, VERIFYING, CONFIRMED, FAILED, REFUNDED, INDETERMINATE, MISMATCH |
-| amount | bigint | NOT NULL | In smallest currency unit (paise for INR). Bigint, not decimal, to avoid floating point. |
-| currency | text | NOT NULL, DEFAULT 'INR' | ISO 4217. |
-| read_token | text | UNIQUE, NOT NULL | KSUID. Issued at creation. Used by frontend for status polling. |
-| callback_url | text | NOT NULL | Where paystable delivers verified events. |
-| metadata | jsonb | DEFAULT '{}' | Merchant-provided context passed through untouched (seat_id, event name, etc). |
-| ttl_seconds | int | NOT NULL, DEFAULT 300 | How long to hold before considering release. |
-| expires_at | timestamptz | NOT NULL | Computed: created_at + ttl_seconds. Indexed for TTL expiry scanner. |
-| created_at | timestamptz | NOT NULL, DEFAULT now() | |
-| updated_at | timestamptz | NOT NULL, DEFAULT now() | |
+## `webhooks_rejected`
 
-**Indexes:**
-- `idx_holds_txn_id` on (txn_id) - unique, primary lookup path
-- `idx_holds_status` on (status) WHERE status IN ('PENDING', 'VERIFYING') - partial index for active holds only
-- `idx_holds_expires_at` on (expires_at) WHERE status = 'PENDING' - TTL expiry scanner
-- `idx_holds_gateway_status` on (gateway, status) - dashboard queries
+Quarantine for webhooks that failed validation.
 
----
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `bigint identity primary key` | Internal only. |
+| `gateway` | `text not null` | Gateway name. |
+| `rejection_reason` | `text not null` | Example: `hmac_mismatch`, `malformed_payload`. |
+| `headers` | `jsonb not null` | Request headers for forensics. |
+| `raw_body` | `bytea not null` | Exact body bytes. |
+| `source_ip` | `inet` | Remote address if available. |
+| `received_at` | `timestamptz not null default now()` | Ingestion time. |
 
-### webhooks
+Indexes:
 
-Every valid inbound webhook. Persisted before any processing happens.
+- `idx_rejected_received_at`
+- `idx_rejected_gateway`
 
-| Column | Type | Constraints | Notes |
-|--------|------|-------------|-------|
-| id | bigint | PK, generated always as identity | |
-| txn_id | text | NOT NULL, FK -> holds(txn_id) | Links to the hold this webhook belongs to. |
-| gateway | text | NOT NULL | |
-| gateway_event_id | text | | Gateway's own event identifier, used for deduplication. |
-| event_type | text | NOT NULL | Gateway-specific event name (e.g. `payment.failed`, `payment.captured`). |
-| payload | jsonb | NOT NULL | Raw gateway payload, unmodified. |
-| received_at | timestamptz | NOT NULL, DEFAULT now() | When paystable received it. |
+## `verification_polls`
 
-**Indexes:**
-- `idx_webhooks_txn_id` on (txn_id)
-- `idx_webhooks_gateway_event_id` on (gateway, gateway_event_id) - deduplication lookup
-- `idx_webhooks_received_at` on (received_at) - partition key, retention queries
+Gateway status checks and stabilizer job queue.
 
-**Partitioning:** Range partitioned on `received_at` by month. Old partitions dropped after retention period (default 90 days).
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `bigint identity primary key` | Internal only. |
+| `txn_id` | `text not null references holds(txn_id)` | Hold being verified. |
+| `attempt_number` | `int not null` | 1-indexed attempt number. |
+| `status` | `text not null default 'pending'` | `pending`, `in_flight`, `completed`, `failed`. |
+| `gateway_status` | `text` | Gateway status string. |
+| `gateway_amount` | `bigint` | Amount reported by gateway. |
+| `raw_response` | `jsonb` | Gateway response body. |
+| `scheduled_at` | `timestamptz not null` | Worker eligibility time. |
+| `started_at` | `timestamptz` | Worker start time. |
+| `completed_at` | `timestamptz` | Poll completion time. |
+| `error` | `text` | Transport or gateway error. |
 
----
+Indexes:
 
-### webhooks_rejected
+- `idx_polls_job_queue` on `scheduled_at` where `status = 'pending'`
+- `idx_polls_txn_id`
 
-Quarantine for webhooks that failed HMAC verification. Never silently dropped.
+## `ledger`
 
-| Column | Type | Constraints | Notes |
-|--------|------|-------------|-------|
-| id | bigint | PK, generated always as identity | |
-| gateway | text | NOT NULL | |
-| rejection_reason | text | NOT NULL | `hmac_mismatch`, `malformed_payload`, `unknown_gateway` |
-| headers | jsonb | NOT NULL | Full request headers. Useful for debugging secret rotation issues. |
-| raw_body | bytea | NOT NULL | Exact bytes received. Not parsed, not interpreted. |
-| source_ip | inet | | For forensics if someone is probing the endpoint. |
-| received_at | timestamptz | NOT NULL, DEFAULT now() | |
+Append-only transaction history.
 
-**Indexes:**
-- `idx_rejected_received_at` on (received_at)
-- `idx_rejected_gateway` on (gateway)
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `bigint identity primary key` | Internal only. |
+| `txn_id` | `text not null references holds(txn_id)` | Related hold. |
+| `event_type` | `text not null` | Example: `hold_created`, `state_transition`, `webhook_received`. |
+| `source` | `text not null` | Example: `api`, `webhook`, `stabilizer`, `outbox`, `admin`. |
+| `from_status` | `text` | Previous hold status. |
+| `to_status` | `text` | New hold status. |
+| `detail` | `jsonb not null default '{}'` | Event-specific data. |
+| `created_at` | `timestamptz not null default now()` | Event time. |
 
----
+Indexes:
 
-### verification_polls
+- `idx_ledger_txn_id_created`
+- `idx_ledger_event_type` for state transitions
 
-Every poll attempt against the gateway's status API. Also serves as the job queue for the stabilizer engine.
+## `outbox`
 
-| Column | Type | Constraints | Notes |
-|--------|------|-------------|-------|
-| id | bigint | PK, generated always as identity | |
-| txn_id | text | NOT NULL, FK -> holds(txn_id) | |
-| attempt_number | int | NOT NULL | 1-indexed. Used to compute next backoff interval. |
-| status | text | NOT NULL, DEFAULT 'pending' | Job status: `pending`, `in_flight`, `completed`, `failed`. |
-| gateway_status | text | | What the gateway returned: `success`, `failed`, `pending`, `not_found`. NULL until completed. |
-| gateway_amount | bigint | | Amount the gateway reports. NULL until completed. For amount-mismatch detection. |
-| raw_response | jsonb | | Full gateway API response. |
-| scheduled_at | timestamptz | NOT NULL | When this poll should fire. Worker picks up rows where scheduled_at <= now(). |
-| started_at | timestamptz | | When worker picked it up. |
-| completed_at | timestamptz | | When gateway responded. |
-| error | text | | If the poll itself failed (timeout, 5xx from gateway, rate limited). |
+Signed merchant callback deliveries and delivery job queue.
 
-**Indexes:**
-- `idx_polls_job_queue` on (scheduled_at) WHERE status = 'pending' - the SKIP LOCKED job queue
-- `idx_polls_txn_id` on (txn_id) - timeline queries
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `bigint identity primary key` | Internal only. |
+| `txn_id` | `text not null references holds(txn_id)` | Related hold. |
+| `event_type` | `text not null` | Internal event label. |
+| `payload` | `jsonb not null` | Callback body. |
+| `idempotency_key` | `text unique not null` | Sent as `X-Paystable-Idempotency-Key`. |
+| `status` | `text not null default 'pending'` | `pending`, `in_flight`, `delivered`, `exhausted`. |
+| `attempts` | `int not null default 0` | Delivery attempts recorded. |
+| `max_attempts` | `int not null default 8` | Exhaustion threshold. |
+| `next_attempt_at` | `timestamptz not null default now()` | Worker eligibility time. |
+| `last_attempt_at` | `timestamptz` | Last delivery attempt. |
+| `last_http_status` | `int` | Last merchant response code. |
+| `last_error` | `text` | Last delivery error. |
+| `delivered_at` | `timestamptz` | Success time. |
+| `created_at` | `timestamptz not null default now()` | Creation time. |
 
-**How the job queue works:**
+Indexes:
 
-```sql
-SELECT id, txn_id, attempt_number
-FROM verification_polls
-WHERE status = 'pending' AND scheduled_at <= now()
-ORDER BY scheduled_at
-LIMIT 10
-FOR UPDATE SKIP LOCKED;
-```
+- `idx_outbox_job_queue` on `next_attempt_at` where `status = 'pending'`
+- `idx_outbox_txn_id`
+- `idx_outbox_status` for exhausted deliveries
 
-Worker grabs up to 10 pending polls, locks them, executes them, updates status. Other workers skip locked rows. No coordination needed beyond postgres.
+## `gateway_secrets`
 
----
+Encrypted gateway webhook secrets for rotation.
 
-### ledger
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `bigint identity primary key` | Internal only. |
+| `gateway` | `text not null` | Gateway name. |
+| `secret_encrypted` | `bytea not null` | AES-GCM encrypted secret. |
+| `is_active` | `boolean not null default true` | Whether the key can verify webhooks. |
+| `rotation_window_end` | `timestamptz` | End of dual-key acceptance window. |
+| `created_at` | `timestamptz not null default now()` | Creation time. |
+| `deactivated_at` | `timestamptz` | Future audit field. |
 
-Append-only audit trail. Every state transition, every significant event, with full context.
+Index:
 
-| Column | Type | Constraints | Notes |
-|--------|------|-------------|-------|
-| id | bigint | PK, generated always as identity | |
-| txn_id | text | NOT NULL, FK -> holds(txn_id) | |
-| event_type | text | NOT NULL | `hold_created`, `webhook_received`, `poll_completed`, `state_transition`, `callback_delivered`, `callback_failed`, `ttl_expired`, `manual_resolution` |
-| source | text | NOT NULL | `api`, `webhook`, `stabilizer`, `outbox`, `admin` |
-| from_status | text | | Previous state. NULL for initial events. |
-| to_status | text | | New state. NULL if event doesn't change state. |
-| detail | jsonb | DEFAULT '{}' | Event-specific context. For poll_completed: gateway response. For state_transition: reason. |
-| created_at | timestamptz | NOT NULL, DEFAULT now() | |
+- `idx_secrets_gateway_active` where `is_active = true`
 
-**Indexes:**
-- `idx_ledger_txn_id_created` on (txn_id, created_at) - timeline view per transaction
-- `idx_ledger_event_type` on (event_type) WHERE event_type = 'state_transition' - dashboard mismatch queries
+## Transition Enforcement
 
-**Rules:** No UPDATE. No DELETE. Application layer enforces this. If you need to correct a mistake, append a correction event, don't edit history.
-
----
-
-### outbox
-
-Events awaiting delivery to the merchant's callback URL. Also its own job queue.
-
-| Column | Type | Constraints | Notes |
-|--------|------|-------------|-------|
-| id | bigint | PK, generated always as identity | |
-| txn_id | text | NOT NULL, FK -> holds(txn_id) | |
-| event_type | text | NOT NULL | `transaction.confirmed`, `transaction.failed`, `transaction.refunded`, `hold.released` |
-| payload | jsonb | NOT NULL | The full callback body that will be sent to the merchant. |
-| idempotency_key | text | UNIQUE, NOT NULL | Derived from: `evt_{txn_id}_{event_type}_{id}`. Merchant uses this to deduplicate. |
-| status | text | NOT NULL, DEFAULT 'pending' | `pending`, `in_flight`, `delivered`, `exhausted` |
-| attempts | int | NOT NULL, DEFAULT 0 | |
-| max_attempts | int | NOT NULL, DEFAULT 8 | 8 retries over ~24h with exponential backoff. |
-| next_attempt_at | timestamptz | NOT NULL, DEFAULT now() | |
-| last_attempt_at | timestamptz | | |
-| last_http_status | int | | Response code from merchant. NULL until first attempt. |
-| last_error | text | | Timeout, connection refused, etc. |
-| delivered_at | timestamptz | | When merchant returned 2xx. |
-| created_at | timestamptz | NOT NULL, DEFAULT now() | |
-
-**Indexes:**
-- `idx_outbox_job_queue` on (next_attempt_at) WHERE status = 'pending' - SKIP LOCKED delivery queue
-- `idx_outbox_txn_id` on (txn_id)
-- `idx_outbox_status` on (status) WHERE status = 'exhausted' - alerting on failed deliveries
-
----
-
-### gateway_secrets
-
-Webhook signing secrets with zero-downtime rotation support.
-
-| Column | Type | Constraints | Notes |
-|--------|------|-------------|-------|
-| id | bigint | PK, generated always as identity | |
-| gateway | text | NOT NULL | |
-| secret_encrypted | bytea | NOT NULL | AES-256-GCM encrypted with `SECRET_ENCRYPTION_KEY`. |
-| is_active | boolean | NOT NULL, DEFAULT true | |
-| rotation_window_end | timestamptz | | If set, this key is in rotation and will be deactivated after this time. |
-| created_at | timestamptz | NOT NULL, DEFAULT now() | |
-| deactivated_at | timestamptz | | |
-
-**How rotation works:**
-
-At any point, there can be at most 2 active secrets per gateway (the current one and the rotating-in one). When verifying an inbound webhook, paystable tries both active secrets. After `rotation_window_end` passes, a background job sets `is_active = false` and `deactivated_at = now()` on the old key.
-
-**Indexes:**
-- `idx_secrets_gateway_active` on (gateway) WHERE is_active = true
-
----
-
-## State Transition Enforcement
-
-The application layer enforces legal transitions. The database adds a safety net via a trigger:
+Postgres enforces terminal-state safety with a trigger:
 
 ```sql
-CREATE OR REPLACE FUNCTION enforce_hold_transitions() RETURNS trigger AS $$
-BEGIN
-  IF OLD.status IN ('CONFIRMED', 'FAILED', 'REFUNDED') THEN
+IF OLD.status IN ('CONFIRMED', 'FAILED', 'REFUNDED', 'INDETERMINATE', 'MISMATCH') THEN
     IF NOT (OLD.status = 'CONFIRMED' AND NEW.status = 'REFUNDED') THEN
-      RAISE EXCEPTION 'illegal transition from % to %', OLD.status, NEW.status;
+        RAISE EXCEPTION 'illegal transition from % to %', OLD.status, NEW.status;
     END IF;
-  END IF;
-  NEW.updated_at = now();
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
+END IF;
 ```
 
-This means even if the application has a bug, postgres itself will reject illegal state changes. Belt and suspenders.
-
----
-
-## Retention and Maintenance
-
-| Table | Retention | Strategy |
-|-------|-----------|----------|
-| holds | Indefinite | Core business data. Never dropped. |
-| webhooks | 90 days (configurable) | Monthly partitions. `DROP PARTITION` for cleanup. |
-| webhooks_rejected | 30 days | Simple DELETE by received_at. Low volume. |
-| verification_polls | 90 days | DELETE completed polls older than threshold. |
-| ledger | Indefinite | Audit trail. Never dropped. |
-| outbox | 30 days after delivery | DELETE delivered rows older than threshold. Exhausted rows kept indefinitely for review. |
-| gateway_secrets | Indefinite | Low volume. Deactivated rows kept for audit. |
+This protects the state machine even if application code tries to move a terminal hold accidentally.

@@ -1,122 +1,129 @@
 # paystable
 
-> **never take irreversible actions on unverified failure signals.**
+> a payment state stabilizer for teams that cannot afford to trust one webhook too early.
 
-a tiny open-source Go daemon that sits between your Indian payment gateway and your app, and gives you the reliability guarantees the gateway doesn't.
+Paystable is a small open-source Go service that sits after checkout and before fulfillment. It does not replace your payment gateway, route payments, vault cards, or compete with payment orchestrators. You keep using PayU today. Paystable gives your app a safer state machine around the messy part that happens after a customer pays: webhook delivery, gateway status lag, conflicting signals, callback retries, and audit trails.
 
-you don't swap your gateway. you don't rewrite your checkout. you put paystable in the middle, point your gateway's webhook at it, and let it do the boring, brutal work of figuring out what *actually* happened to a payment.
+The core rule is simple:
 
----
+> never take an irreversible action on one unverified payment signal.
 
-## the problem
-
-every Indian payment gateway — payu, razorpay, cashfree, phonepe — ships the same two bugs:
-
-**webhooks are best-effort.** sometimes they don't arrive. sometimes they arrive late. sometimes they fire a `failure` while the user's bank has already debited the money.
-
-**verification APIs lie.** they hit read replicas that lag the write primary. razorpay literally documents that order status can take *"a few minutes"* to reflect. you ask "did this payment succeed?" and the gateway confidently says "no" — when in fact, yes, the money is moving, just not on this replica yet.
-
-put those together and you get the canonical Indian-gateway disaster:
-
-1. failure webhook arrives.
-2. you act on it. release the seat. void the order. show the user a red screen.
-3. ten seconds later, the truth catches up. payment was actually successful.
-4. you now owe a refund you didn't plan for. the user is angry. inventory is sold to someone else.
-5. you only find out because someone went back and checked manually.
-
-we got burned by exactly this at **a well known fest :)** (PayU + ticketing). a webhook the gateway sent us was discarded entirely — never persisted. the verification API we fell back to was hitting a stale replica. two failure points, one furious user, one refund out of pocket.
-
-every college fest, indie SaaS, and event platform on these rails hits this. most never realise.
+That matters when a gateway says `failed` while the bank debit is still reconciling, when a webhook arrives late, or when your app is down for the one request that mattered.
 
 ---
 
-## the fix
+## what paystable is
 
-paystable enforces one rule:
+Paystable is a truth/stabilization layer for a single merchant deployment:
 
-> a single signal from your gateway is **never** trusted. terminal state requires multiple agreeing observations across time.
+- accepts gateway webhooks and verifies their signature
+- stores valid webhooks before doing any processing
+- polls the gateway status API on a controlled schedule
+- requires stable agreement before `CONFIRMED` or `FAILED`
+- marks amount disagreements as `MISMATCH`
+- marks unresolved cases as `INDETERMINATE`
+- sends signed, idempotent callbacks to your app from a Postgres outbox
+- keeps an append-only ledger for support, finance, and gateway disputes
 
-that's the whole project.
+Paystable is intentionally narrow. It is not a PSP, not a checkout SDK, not a Hyperswitch-style router, and not a reconciliation product for every bank statement format.
+
+---
+
+## the user experience
+
+The customer should not stare at a spinner for a minute.
+
+Recommended flow:
+
+1. Your backend creates a hold in Paystable before redirecting the user to the gateway.
+2. The gateway redirects the user back to your payment result page.
+3. The page opens Paystable SSE or polls the status endpoint with the `read_token`.
+4. For the first few seconds, show a normal verifying state.
+5. If Paystable is still `VERIFYING` after roughly 8-15 seconds, let the user leave:
+
+   "We received your payment attempt and are verifying it with the bank. You can close this page. We will update your order automatically."
+
+6. Only fulfill on the signed backend callback, not on frontend text.
+
+For physical goods, tickets, and seat reservations, keep the order reserved until the hold resolves. For wallet credits or digital goods, do not credit balance until `CONFIRMED`. For low-risk products, merchants can choose their own provisional-access policy, but Paystable's trusted final state remains the callback.
+
+---
+
+## states
+
+| Status | Meaning | Merchant action |
+|---|---|---|
+| `PENDING` | Hold exists. No terminal evidence yet. | Reserve inventory. Show neutral processing copy. |
+| `VERIFYING` | A webhook or scheduled check triggered gateway verification. | Keep the hold. Do not show a hard failure. |
+| `CONFIRMED` | Gateway success was observed consistently and amount matched. | Fulfill safely. |
+| `FAILED` | Gateway failure was observed consistently, or TTL final check verified failure. | Release inventory or offer retry. |
+| `MISMATCH` | Gateway reported success but the verified amount did not match the hold. | Stop automation. Review manually. |
+| `INDETERMINATE` | Paystable could not reach safe consensus before the verification window ended. | Escalate to ops/support. |
+| `REFUNDED` | Reserved in the schema for post-confirmation reversal flows. | Do not rely on this as a complete refund workflow yet. |
 
 ---
 
 ## how it works
 
-six layers, all in one binary, all backed by postgres:
+### Webhook ingestion
 
-### 1. webhook ingestion
-every inbound webhook is HMAC-verified first (razorpay = HMAC-SHA256, payu = its own scheme). signature mismatch → quarantined to a separate table, never touches the ledger. signature ok → persisted before anything else runs. your app can be down when the webhook arrives — paystable has it, and will replay it when you come back.
-
-### 2. verification & stabilization
-a failure webhook is **never** acted on directly. paystable queues it and polls the gateway's status API on jittered exponential backoff:
-
-```
-5s → 10s → 20s → 40s → 80s → 160s
-```
-
-the status must be **stable across N consecutive checks** (default `N=3`) before it's marked verified. one API call is a guess. three agreeing API calls is the truth. jitter prevents 100 failed checkouts at the same minute from thundering payu's status endpoint into a rate-limit ban.
-
-### 3. reconciliation ledger
-permanent, append-only record of every webhook, every poll, every state transition, with timestamps and gateway raw payloads. when something goes wrong, you stop saying *"something went wrong"* and start saying *"here is exactly what went wrong, signed, dated, exportable."* useful for refund decisions, internal audits, and disputes with the gateway when their numbers and yours disagree.
-
-### 4. outbound delivery manager
-paystable knowing the truth is half the job. the other half is making sure your app receives it. we maintain a postgres outbox. every verified event is delivered to your app with retries, exponential backoff, and idempotency keys (keyed on the verified-event id, so a duplicate delivery is a no-op). your app can be down for an hour and not lose a single confirmation.
-
-### 5. hold API
-your checkout flow calls:
+Gateway webhooks hit:
 
 ```http
-POST /hold
-{ "txn_id": "...", "ttl_seconds": 300 }
+POST /webhooks/{gateway}
 ```
 
-paystable holds the record in `PENDING`. if verification confirms success inside the TTL, the hold flips to `CONFIRMED`. if the TTL expires, paystable runs **one final verification pass** before sending the release callback to your app — because a TTL alone is exactly the kind of unverified signal we refuse to act on. you don't manage timers, retries, or state machines. paystable does.
+Paystable verifies the gateway signature. Valid webhooks are persisted in Postgres. Invalid webhooks are stored in `webhooks_rejected` for forensics and metrics.
 
-### 6. ops dashboard
-a small React UI showing:
-- mismatch rate per gateway, over time
-- full timeline of every mismatch transaction
-- exportable audit reports for gateway disputes
-- slack / telegram alerts the *moment* a mismatch is detected
-- **adaptive polling** — if paystable detects a gateway is consistently returning stale reads, it marks it `degraded` and automatically slows polling across every active txn on that gateway. your built-in answer to rate limits.
+### Stabilizer
 
----
+The stabilizer stores poll jobs in `verification_polls` and claims them with `SELECT ... FOR UPDATE SKIP LOCKED`. It checks gateway status with jittered scheduling and a per-gateway token bucket.
 
-## integrating with your app
+Success requires:
 
-one endpoint:
+- a captured/success status
+- amount equality with the hold
+- enough consecutive matching completed polls, controlled by `STABILIZATION_N`
 
-```http
-GET /transactions/:id/status
-```
+Failure also requires stable failure observations. Ambiguous, missing, inconsistent, or exhausted checks go to `INDETERMINATE`, not silent release.
 
-returns:
+### TTL scanner
 
-| status      | meaning                                                                 |
-|-------------|-------------------------------------------------------------------------|
-| `PENDING`   | hold created, no terminal signal yet.                                   |
-| `VERIFYING` | gateway claimed something. paystable is stabilizing. don't act.         |
-| `CONFIRMED` | money is in across multiple agreeing polls. ship it.                    |
-| `FAILED`    | confirmed failure, stable. safe to refund / release.                    |
-| `REFUNDED`  | post-confirmation reversal.                                             |
+When a hold expires, Paystable does not fail it on the timer alone. It runs one final gateway verification:
 
-your frontend opens an SSE stream (or polls every 3s as fallback) on the payment-result page. the user can refresh, close the tab, come back tomorrow — paystable answers consistently. what you *show* the user during each state is your problem. keeping the status accurate is ours.
+- success + matching amount -> `CONFIRMED`
+- success + wrong amount -> `MISMATCH`
+- verified failure -> `FAILED`
+- no client, timeout, pending, not found, or inconclusive result -> `INDETERMINATE`
+
+### Outbox delivery
+
+Final states are delivered to your backend using signed HTTP callbacks. Delivery is at-least-once, so merchants must deduplicate with `X-Paystable-Idempotency-Key`.
 
 ---
 
 ## quickstart
 
+Install the latest release:
+
 ```bash
-curl -sSL https://paystable.vercel.app | sh
+curl -fsSL https://paystable.vercel.app | sh
 cd paystable
-# fill in .env
+# edit .env
 ./paystable
-# dashboard at http://localhost:8080/dashboard
 ```
 
-that's it. single static Go binary. no JVM, no Node runtime, no Python. one process, one database, accepting webhooks. dashboard live.
+The installer prints each step with `[INFO]` messages, downloads the correct binary for your OS/arch, and verifies it against the release `checksums.txt`.
 
-for local development with postgres included:
+Dashboard:
+
+```text
+http://localhost:8080/dashboard
+```
+
+Admin dashboard APIs are loopback-only. Put Paystable behind your own reverse proxy or SSH tunnel if you need remote access.
+
+For local end-to-end testing:
 
 ```bash
 cp .env.testkit.example .env.testkit
@@ -125,7 +132,122 @@ docker compose -f docker-compose.testkit.yml --env-file .env.testkit up --build
 
 ---
 
-## secret rotation, zero downtime
+## create a hold
+
+```http
+POST /api/v1/hold
+Authorization: Bearer <ADMIN_API_KEY>
+Content-Type: application/json
+```
+
+```json
+{
+  "txn_id": "order_abc123",
+  "gateway": "payu",
+  "amount": 49900,
+  "currency": "INR",
+  "ttl_seconds": 300,
+  "callback_url": "https://merchant.example/paystable/callback",
+  "metadata": {
+    "order_id": "order_abc123",
+    "customer_email": "student@example.com"
+  }
+}
+```
+
+Response:
+
+```json
+{
+  "txn_id": "order_abc123",
+  "status": "PENDING",
+  "read_token": "pst_rt_...",
+  "expires_at": "2026-06-24T12:05:00Z",
+  "created_at": "2026-06-24T12:00:00Z"
+}
+```
+
+The frontend can read status with:
+
+```http
+GET /api/v1/transactions/{txn_id}/status?token={read_token}
+GET /api/v1/transactions/{txn_id}/stream?token={read_token}
+```
+
+The backend can read status with:
+
+```http
+GET /api/v1/transactions/{txn_id}/status
+Authorization: Bearer <ADMIN_API_KEY>
+```
+
+---
+
+## callback payload
+
+Paystable sends final outcomes to the hold `callback_url`:
+
+```http
+POST <callback_url>
+Content-Type: application/json
+X-Paystable-Signature: sha256=<hmac>
+X-Paystable-Idempotency-Key: <opaque-key>
+X-Paystable-Timestamp: <unix-seconds>
+```
+
+```json
+{
+  "txn_id": "order_abc123",
+  "event": "transaction.confirmed",
+  "status": "CONFIRMED",
+  "amount": 49900,
+  "currency": "INR",
+  "gateway": "payu",
+  "verified_at": "2026-06-24T12:00:19Z",
+  "metadata": {
+    "order_id": "order_abc123",
+    "customer_email": "student@example.com"
+  }
+}
+```
+
+Verify `X-Paystable-Signature` before parsing or fulfilling anything.
+
+---
+
+## configuration
+
+Required:
+
+| Variable | Purpose |
+|---|---|
+| `DATABASE_URL` | PostgreSQL connection string. |
+| `GATEWAY` | Active gateway. Current adapter: `payu`. |
+| `WEBHOOK_SECRET` | Gateway webhook signing secret. For PayU this is the salt. |
+| `GATEWAY_API_KEY` | Gateway credential. For PayU this is the merchant key. |
+| `PAYU_STATUS_URL` | PayU status API endpoint. |
+| `MERCHANT_CALLBACK_SECRET` | Secret used to sign callbacks to your app. |
+| `ADMIN_API_KEY` | Bearer token for hold creation and backend status reads. |
+
+Optional:
+
+| Variable | Default | Purpose |
+|---|---:|---|
+| `PORT` | `8080` | HTTP port. |
+| `STABILIZATION_N` | `3` | Consecutive matching polls required for terminal success/failure. |
+| `MAX_BACKOFF_S` | `160` | Legacy cap used by older scheduler paths. |
+| `HOLD_MAX_TTL_S` | `900` | Maximum hold TTL accepted by the API. |
+| `DELIVERY_TIMEOUT_S` | `10` | Merchant callback timeout. |
+| `DELIVERY_WORKER_CONCURRENCY` | `20` | Concurrent outbox deliveries. |
+| `DELIVERY_ALLOW_INSECURE_CALLBACK` | `false` | Allows `http://` callbacks for local development only. |
+| `SECRET_ENCRYPTION_KEY` | empty | Required for encrypted webhook secret rotation. |
+| `LOG_LEVEL` | `info` | Log level. |
+
+---
+
+## secret rotation
+
+Secret rotation is available through the localhost-only admin API:
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/admin/config/rotate-secret \
@@ -133,60 +255,21 @@ curl -X POST http://localhost:8080/api/v1/admin/config/rotate-secret \
   -d '{"gateway":"payu","new_secret":"NEW_SECRET","window_hours":24}'
 ```
 
-set `SECRET_ENCRYPTION_KEY` before using rotation. paystable accepts webhooks signed by either the old or new key for the duration of the window; after the window, expired keys are ignored.
-
----
-
-## tech stack
-
-- **Go** — single static binary, deploys anywhere
-- **PostgreSQL** — ledger, webhook store, outbox, *and* the job queue via `SELECT … FOR UPDATE SKIP LOCKED`
-- **React + Tailwind** — dashboard, embedded into the Go binary
-- **Docker Compose** — local dev in one command
-- **no** Kafka. **no** Redis. **no** NATS. one less moving part is one less thing to break at midnight in the middle of a fest.
-
----
-
-## roadmap
-
-**phase 1 — 40 days, payu only**
-schema + ledger → HMAC verification → exponential stabilizer → hold API state machine → outbound delivery manager → dashboard + soak test.
-ship one gateway, correctly.
-
-**phase 2**
-razorpay, cashfree, phonepe. bank-statement reconciliation. multi-tenant mode for agencies running paystable on behalf of multiple merchants.
-
----
-
-## who this is for
-
-college fests. indie SaaS. event ticketing platforms. anyone running on Indian payment gateways without a dedicated payments-reliability engineer on staff.
-
-if you've ever stared at a "failed" payment that wasn't actually failed, refunded a user out of your own pocket, or sold the same seat twice because a webhook lied to you — paystable is for you.
-
-razorpay and payu have no official SDK that handles webhook durability + verification stabilization + reconciliation together. every small team either reinvents this badly, or doesn't reinvent it and gets quietly burned month after month.
-
-we're building the thing we wish existed the day anokha shipped.
+Set `SECRET_ENCRYPTION_KEY` before using rotation. During the rotation window, Paystable accepts webhooks signed with either the old or new secret.
 
 ---
 
 ## docs
 
-- [Product Requirements Document](docs/prd.md) - full PRD with API spec, state machine, security model, and UX guidance
-- [Database Schema](docs/schema.md) - every table, column, index, and the reasoning behind each design choice
-- [Lag Estimator](docs/lag-estimator.md) - how paystable learns per-gateway verification lag to confirm fast and fail honestly
-- [Callback Contract](docs/callback-contract.md) - the binding spec for outbound delivery to merchant apps (headers, signing, idempotency, retry)
+- [Product requirements](docs/prd.md)
+- [Database schema](docs/schema.md)
+- [Callback contract](docs/callback-contract.md)
+- [Lag estimator](docs/lag-estimator.md)
+- [Frontend UX guide](docs/frontend-ux.md)
+- [Testkit](testkit/README.md)
 
 ---
 
 ## license
 
-MIT. take it, run it, fork it, ship it.
-
-## contributing
-
-PRs welcome. gateway-reliability war stories *very* welcome — open an issue with the dump and we'll likely turn it into a test case.
-
----
-
-*paystable: because "the gateway said it failed" is not the same as "it actually failed."*
+MIT.

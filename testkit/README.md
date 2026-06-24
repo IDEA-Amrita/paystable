@@ -34,7 +34,7 @@ available scenarios:
 | `happy-path` | webhook says success, gateway confirms success. hold → CONFIRMED. |
 | `false-failure` | webhook says FAILED, but gateway actually returns success after 25s. paystable should still reach CONFIRMED. this is the core case paystable exists to solve. |
 | `genuine-failure` | webhook and gateway both say failed. hold → FAILED. |
-| `amount-mismatch` | gateway reports success but wrong amount. hold → INDETERMINATE. |
+| `amount-mismatch` | gateway reports success but wrong amount. hold -> MISMATCH. |
 | `merchant-offline` | merchant callback endpoint is down. hold confirms, delivery retries. bring merchant back online to see delivery succeed. |
 | `duplicate-webhook` | same webhook fired 3 times. should not produce duplicate state transitions. |
 

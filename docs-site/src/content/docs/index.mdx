@@ -1,0 +1,80 @@
+---
+title: Paystable Docs
+description: Payment state stabilization for webhook and gateway-status uncertainty.
+template: splash
+hero:
+  tagline: Paystable is a small Go service that helps merchants decide when a payment is safe to fulfill, fail, or escalate.
+  actions:
+    - text: Start integrating
+      link: /guides/getting-started/
+      icon: right-arrow
+      variant: primary
+    - text: Frontend UX
+      link: /guides/frontend-ux/
+      icon: document
+    - text: GitHub
+      link: https://github.com/IDEA-Amrita/paystable
+      icon: external
+---
+
+<section class="truth-panel">
+  <p class="eyebrow">What Paystable is</p>
+  <h2>A truth layer after checkout, not another payment gateway.</h2>
+  <p>
+    Paystable sits between your gateway signals and your fulfillment code. It stores webhooks,
+    verifies gateway status, detects amount mismatches, and sends signed callbacks when a hold
+    reaches a safe state.
+  </p>
+</section>
+
+<div class="signal-grid">
+  <a class="signal-card" href="/guides/getting-started/">
+    <span class="signal-label">Integrate</span>
+    <h3>Create holds before redirect</h3>
+    <p>Reserve the order, get a read token, and let Paystable own the verification state machine.</p>
+  </a>
+  <a class="signal-card" href="/reference/callbacks/">
+    <span class="signal-label">Fulfill</span>
+    <h3>Use signed backend callbacks</h3>
+    <p>Frontend polling is for display. Fulfillment should happen from verified, idempotent callbacks.</p>
+  </a>
+  <a class="signal-card" href="/guides/frontend-ux/">
+    <span class="signal-label">UX</span>
+    <h3>Do not trap users in a spinner</h3>
+    <p>Show a short verifying state, then let the user leave while the backend settles the order.</p>
+  </a>
+  <a class="signal-card" href="/reference/schema/">
+    <span class="signal-label">Ops</span>
+    <h3>Keep the evidence trail</h3>
+    <p>Webhooks, polls, transitions, delivery attempts, and review states remain queryable in Postgres.</p>
+  </a>
+</div>
+
+## Product Boundary
+
+Paystable is intentionally narrower than a payment orchestrator.
+
+| Paystable does | Paystable does not |
+|---|---|
+| Stabilize webhook and verification signals. | Route payments across processors. |
+| Detect amount mismatch and unresolved states. | Vault cards or handle PCI card data. |
+| Deliver signed, retryable merchant callbacks. | Replace Razorpay, PayU, Cashfree, or Hyperswitch. |
+| Keep a ledger for support and gateway disputes. | Automatically refund customers. |
+
+## Core States
+
+| State | Meaning |
+|---|---|
+| `PENDING` | Hold exists, no terminal evidence yet. |
+| `VERIFYING` | Gateway signal received or status checks are active. |
+| `CONFIRMED` | Stable success and amount match. |
+| `FAILED` | Stable failure or TTL final check verified failure. |
+| `MISMATCH` | Gateway success amount differs from the hold. |
+| `INDETERMINATE` | Paystable could not reach a safe answer automatically. |
+
+## Recommended Reading
+
+1. [Getting Started](/guides/getting-started/) for the integration flow.
+2. [Frontend UX](/guides/frontend-ux/) for customer-facing payment result pages.
+3. [Callback Contract](/reference/callbacks/) for signed fulfillment events.
+4. [Project Readiness](/reference/gap-analysis/) for what is still missing.
