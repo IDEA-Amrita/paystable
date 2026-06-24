@@ -181,7 +181,7 @@ func TestAcquireToken_CapacityNeverExceeded(t *testing.T) {
 
 	ctx := context.Background()
 	capacity := 3
-	refillPerSec := 0.001
+	refillPerSec := 0.01
 
 	// Acquire once to create the row.
 	AcquireToken(ctx, db, gw, capacity, refillPerSec) //nolint:errcheck
