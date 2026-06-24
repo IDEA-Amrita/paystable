@@ -114,6 +114,7 @@ cd paystable
 ```
 
 The installer prints each step with `[INFO]` messages, downloads the correct binary for your OS/arch, and verifies it against the release `checksums.txt`.
+The example `DATABASE_URL` expects a local Postgres database with user `paystable`, password `paystable`, and database `paystable`; change the URL if your database was created with different credentials.
 
 Dashboard:
 

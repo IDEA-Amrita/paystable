@@ -104,6 +104,8 @@ Welcome to Paystable! You have successfully installed the binary.
    ```bash
    nano .env
    ```
+   The example URL expects a local Postgres database created with:
+   `POSTGRES_USER=paystable`, `POSTGRES_PASSWORD=paystable`, and `POSTGRES_DB=paystable`.
 
 2. **Run Paystable**:
    ```bash
