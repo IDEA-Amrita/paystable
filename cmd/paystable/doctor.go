@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/IDEA-Amrita/paystable/internal/config"
 	"github.com/IDEA-Amrita/paystable/internal/database"
+	"github.com/lib/pq"
 )
 
 const postgresSetupGuide = "https://docs-paystable.vercel.app/guides/getting-started/#set-up-postgres"
@@ -54,6 +56,7 @@ func runDoctor(args []string) error {
 	infoLine("database target: " + describeDatabaseURL(dsn))
 	db, err := database.Connect(dsn)
 	if err != nil {
+		explainDatabaseConnectionError(err)
 		infoLine("database setup guide: " + postgresSetupGuide)
 		return fmt.Errorf("database connection failed: %w", err)
 	}
@@ -116,6 +119,36 @@ func describeDatabaseURL(raw string) string {
 	}
 
 	return fmt.Sprintf("user=%s host=%s database=%s", user, host, dbName)
+}
+
+func explainDatabaseConnectionError(err error) {
+	var pqErr *pq.Error
+	if errors.As(err, &pqErr) {
+		message := strings.ToLower(pqErr.Message)
+		switch {
+		case strings.Contains(message, "ident authentication failed") ||
+			strings.Contains(message, "peer authentication failed"):
+			warnLine("postgres is using ident/peer auth for this connection")
+			warnLine("enable password auth for localhost in pg_hba.conf")
+			warnLine("find it with: sudo -u postgres psql -c \"SHOW hba_file;\"")
+			warnLine("add before broader ident/peer rules: host paystable paystable 127.0.0.1/32 scram-sha-256")
+			warnLine("for IPv6 localhost, also add: host paystable paystable ::1/128 scram-sha-256")
+			warnLine("reload postgres, then rerun: ./paystable doctor")
+		case pqErr.Code == "28P01":
+			warnLine("postgres accepted password auth, but the DATABASE_URL password was rejected")
+			warnLine("reset it with: ALTER USER paystable WITH PASSWORD 'change-this-password';")
+		case pqErr.Code == "3D000":
+			warnLine("the database in DATABASE_URL does not exist")
+			warnLine("create it with: CREATE DATABASE paystable OWNER paystable;")
+		}
+		return
+	}
+
+	message := strings.ToLower(err.Error())
+	if strings.Contains(message, "connection refused") {
+		warnLine("postgres is not accepting connections at the DATABASE_URL host and port")
+		warnLine("start postgres or update DATABASE_URL to the correct host and port")
+	}
 }
 
 func closeDB(db *sql.DB) {

@@ -106,6 +106,7 @@ Welcome to Paystable! You have successfully installed the binary.
    CREATE USER paystable WITH PASSWORD 'change-this-password';
    CREATE DATABASE paystable OWNER paystable;
    ```
+   If Postgres reports ident/peer authentication errors, enable password auth for the `paystable` user/database in `pg_hba.conf`.
    More details:
    https://docs-paystable.vercel.app/guides/getting-started/#set-up-postgres
 

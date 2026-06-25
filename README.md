@@ -134,6 +134,19 @@ Then set:
 DATABASE_URL=postgres://paystable:change-this-password@localhost:5432/paystable?sslmode=disable
 ```
 
+If `./paystable doctor` reports `Ident authentication failed` or `Peer authentication failed`, your Postgres `pg_hba.conf` is not allowing password auth for this local connection. Find the file:
+
+```bash
+sudo -u postgres psql -c "SHOW hba_file;"
+```
+
+Add these rules before broader `ident` or `peer` rules, then reload Postgres:
+
+```text
+host    paystable    paystable    127.0.0.1/32    scram-sha-256
+host    paystable    paystable    ::1/128         scram-sha-256
+```
+
 Run `./paystable doctor` to check the `.env`, connect to Postgres, and apply pending migrations before starting the server.
 
 Dashboard:
