@@ -130,7 +130,7 @@ func handleCommand(args []string) bool {
 	switch args[0] {
 	case "doctor":
 		if err := runDoctor(args[1:]); err != nil {
-			fmt.Fprintf(os.Stderr, "[ERROR] %v\n", err)
+			fmt.Printf("[ERROR] %v\n", err)
 			os.Exit(1)
 		}
 		return true
@@ -141,7 +141,7 @@ func handleCommand(args []string) bool {
 		printUsage()
 		return true
 	default:
-		fmt.Fprintf(os.Stderr, "[ERROR] unknown command: %s\n", args[0])
+		fmt.Printf("[ERROR] unknown command: %s\n", args[0])
 		printUsage()
 		os.Exit(1)
 		return true
