@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -27,6 +28,10 @@ import (
 var Version = "dev"
 
 func main() {
+	if handleCommand(os.Args[1:]) {
+		return
+	}
+
 	cfg, err := config.Load()
 	if err != nil {
 		slog.Error("config", "error", err)
@@ -115,6 +120,40 @@ func main() {
 		slog.Error("server shutdown error", "error", err)
 	}
 	slog.Info("paystable stopped")
+}
+
+func handleCommand(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+
+	switch args[0] {
+	case "doctor":
+		if err := runDoctor(args[1:]); err != nil {
+			fmt.Fprintf(os.Stderr, "[ERROR] %v\n", err)
+			os.Exit(1)
+		}
+		return true
+	case "version", "--version", "-v":
+		fmt.Println(Version)
+		return true
+	case "help", "--help", "-h":
+		printUsage()
+		return true
+	default:
+		fmt.Fprintf(os.Stderr, "[ERROR] unknown command: %s\n", args[0])
+		printUsage()
+		os.Exit(1)
+		return true
+	}
+}
+
+func printUsage() {
+	fmt.Println("usage: paystable [doctor|version]")
+	fmt.Println()
+	fmt.Println("commands:")
+	fmt.Println("  doctor   check .env, Postgres connectivity, and database migrations")
+	fmt.Println("  version  print the paystable version")
 }
 
 func authMiddleware(apiKey string, next http.Handler) http.Handler {

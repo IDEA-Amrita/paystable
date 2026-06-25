@@ -67,6 +67,11 @@ func Load() (*Config, error) {
 	return c, nil
 }
 
+// LoadDotEnv loads .env into the process environment without validation.
+func LoadDotEnv() {
+	loadDotEnv()
+}
+
 func loadDotEnv() {
 	file, err := os.Open(".env")
 	if err != nil {

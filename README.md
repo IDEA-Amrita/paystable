@@ -110,11 +110,31 @@ Install the latest release:
 curl -fsSL https://paystable.vercel.app | sh
 cd paystable
 # edit .env
+./paystable doctor
 ./paystable
 ```
 
 The installer prints each step with `[INFO]` messages, downloads the correct binary for your OS/arch, and verifies it against the release `checksums.txt`.
-The example `DATABASE_URL` expects a local Postgres database with user `paystable`, password `paystable`, and database `paystable`; change the URL if your database was created with different credentials.
+The example `DATABASE_URL` expects a local Postgres database with user `paystable`, password `change-this-password`, and database `paystable`; change the password before production.
+
+Create a local database before starting the binary:
+
+```bash
+sudo -u postgres psql
+```
+
+```sql
+CREATE USER paystable WITH PASSWORD 'change-this-password';
+CREATE DATABASE paystable OWNER paystable;
+```
+
+Then set:
+
+```env
+DATABASE_URL=postgres://paystable:change-this-password@localhost:5432/paystable?sslmode=disable
+```
+
+Run `./paystable doctor` to check the `.env`, connect to Postgres, and apply pending migrations before starting the server.
 
 Dashboard:
 
