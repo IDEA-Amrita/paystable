@@ -59,7 +59,7 @@ func main() {
 	holdHandler := hold.NewHandler(holdStore, cfg.HoldMaxTTLS, cfg.AdminAPIKey)
 
 	lag := stabilizer.NewLagEstimator()
-	payuClient := payu.NewClient(cfg.PayuStatusURL, cfg.GatewayAPIKey)
+	payuClient := payu.NewClient(cfg.PayuStatusURL, cfg.GatewayAPIKey, cfg.WebhookSecret)
 	gatewayFactory := func(g string) gateway.GatewayClient {
 		if g == "payu" {
 			return payuClient
