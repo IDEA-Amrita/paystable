@@ -15,8 +15,8 @@ import (
 	"time"
 )
 
-// Client calls the PayU Transaction Status Check API (verify_payment command).
-// Docs: https://docs.payu.in/reference/transaction-status-check-api-2
+// Client calls the PayU Verify Payment API (verify_payment command).
+// Docs: https://docs.payu.in/reference/verify-payment
 type Client struct {
 	BaseURL     string
 	MerchantKey string
@@ -45,9 +45,13 @@ type payuEnvelope struct {
 }
 
 // payuTxnDetail holds the fields we read from inside transaction_details.
+// PayU's verify_payment response uses amt as the primary amount field,
+// falling back to transaction_amount, then amount (used by the mock gateway).
 type payuTxnDetail struct {
-	Status string `json:"status"`
-	Amount string `json:"amount"`
+	Status            string `json:"status"`
+	Amt               string `json:"amt"`
+	TransactionAmount string `json:"transaction_amount"`
+	Amount            string `json:"amount"`
 }
 
 // Status implements gateway.GatewayClient.
@@ -102,7 +106,17 @@ func (c *Client) Status(ctx context.Context, txnID string) (string, int64, json.
 		return "", 0, raw, fmt.Errorf("invalid transaction detail JSON: %w", err)
 	}
 
-	amount, _ := parseAmount(detail.Amount)
+	rawAmt := detail.Amt
+	if rawAmt == "" {
+		rawAmt = detail.TransactionAmount
+	}
+	if rawAmt == "" {
+		rawAmt = detail.Amount
+	}
+	amount, err := parseAmount(rawAmt)
+	if err != nil {
+		return "", 0, raw, fmt.Errorf("payu: unparseable amount %q: %w", rawAmt, err)
+	}
 	return normalizeStatus(detail.Status), amount, raw, nil
 }
 

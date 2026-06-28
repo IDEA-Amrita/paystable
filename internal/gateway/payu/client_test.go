@@ -24,24 +24,6 @@ func payuResponse(txnID, status, amount string) string {
 		txnID + `":{"status":"` + status + `","amount":"` + amount + `","txnid":"` + txnID + `"}}}`
 }
 
-// captureRequest returns a round-tripper that stores the request and replies
-// with the given status code and body.
-func captureRequest(code int, body string) (roundTripFunc, *http.Request) {
-	var captured *http.Request
-	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		// Buffer the body so we can assert on it after the call.
-		_ = r.ParseForm()
-		captured = r
-		return &http.Response{
-			StatusCode: code,
-			Body:       io.NopCloser(strings.NewReader(body)),
-			Header:     make(http.Header),
-		}, nil
-	})
-	_ = captured // will be set after the call
-	return rt, captured
-}
-
 func newTestClient(rt http.RoundTripper) *Client {
 	c := NewClient("https://payu.test/merchant/postservice.php", "test_key", "test_salt")
 	c.HTTP = &http.Client{Transport: rt}
@@ -385,6 +367,97 @@ func TestStatus_RawResponsePreservedOnSuccess(t *testing.T) {
 	}
 	if string(raw) != body {
 		t.Errorf("raw = %q, want %q", string(raw), body)
+	}
+}
+
+// ── Amount field priority (real PayU response shape) ─────────────────────────
+
+// PayU's actual verify_payment response uses "amt", not "amount".
+// This test uses the documented response shape to catch field-name drift.
+func TestStatus_RealPayUResponseShape_UsesAmt(t *testing.T) {
+	body := `{
+		"status": 1,
+		"msg": "Transaction Fetched Successfully",
+		"transaction_details": {
+			"txn_real": {
+				"mihpayid": "403993715530530",
+				"status": "success",
+				"amt": "499.00",
+				"transaction_amount": "499.00",
+				"txnid": "txn_real"
+			}
+		}
+	}`
+	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Header:     make(http.Header),
+		}, nil
+	})
+	status, amount, _, err := newTestClient(rt).Status(context.Background(), "txn_real")
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if status != "success" {
+		t.Errorf("status = %q, want success", status)
+	}
+	if amount != 49900 {
+		t.Errorf("amount = %d, want 49900 (amt field takes priority)", amount)
+	}
+}
+
+func TestStatus_FallsBackToTransactionAmount(t *testing.T) {
+	body := `{"status":1,"msg":"ok","transaction_details":{"txn_ta":{"status":"success","transaction_amount":"100.00","txnid":"txn_ta"}}}`
+	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Header:     make(http.Header),
+		}, nil
+	})
+	_, amount, _, err := newTestClient(rt).Status(context.Background(), "txn_ta")
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if amount != 10000 {
+		t.Errorf("amount = %d, want 10000", amount)
+	}
+}
+
+func TestStatus_FallsBackToAmount(t *testing.T) {
+	// "amount" is what the mock gateway returns — keep it as last fallback.
+	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(payuResponse("txn_fb", "success", "200.00"))),
+			Header:     make(http.Header),
+		}, nil
+	})
+	_, amount, _, err := newTestClient(rt).Status(context.Background(), "txn_fb")
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if amount != 20000 {
+		t.Errorf("amount = %d, want 20000", amount)
+	}
+}
+
+func TestStatus_BadAmountReturnsError(t *testing.T) {
+	body := `{"status":1,"msg":"ok","transaction_details":{"txn_bad_amt":{"status":"success","amt":"not-a-number","txnid":"txn_bad_amt"}}}`
+	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Header:     make(http.Header),
+		}, nil
+	})
+	_, _, raw, err := newTestClient(rt).Status(context.Background(), "txn_bad_amt")
+	if err == nil {
+		t.Fatal("expected error for unparseable amount")
+	}
+	if len(raw) == 0 {
+		t.Error("raw response should be preserved on amount parse error")
 	}
 }
 
