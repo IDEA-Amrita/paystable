@@ -219,6 +219,113 @@ func TestStatus_TxnIDKeyMissingInDetails_NotFound(t *testing.T) {
 	}
 }
 
+// PayU represents an unrecognised txnid as a present entry with
+// status: "Not Found", not an absent key. Must normalize to not_found
+// with amount 0 and no error, same as the missing-key case.
+func TestStatus_NotFoundStatusString_NormalizedToNotFound(t *testing.T) {
+	body := `{"status":1,"msg":"ok","transaction_details":{"txn_nf":{"status":"Not Found","txnid":"txn_nf"}}}`
+	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Header:     make(http.Header),
+		}, nil
+	})
+	status, amount, _, err := newTestClient(rt).Status(context.Background(), "txn_nf")
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if status != "not_found" {
+		t.Errorf("status = %q, want not_found for PayU's \"Not Found\" status string", status)
+	}
+	if amount != 0 {
+		t.Errorf("amount = %d, want 0 — must not attempt to parse an amount off a Not Found record", amount)
+	}
+}
+
+// A response with no transaction_details field at all is a schema
+// violation (wrong command, flat check_payment shape, misrouted
+// request), not a legitimate "txn not found yet" signal. Must fail
+// loud with the raw payload attached instead of silently returning
+// not_found.
+func TestStatus_MissingTransactionDetailsField_ReturnsSchemaError(t *testing.T) {
+	body := `{"status":0,"msg":"invalid command"}`
+	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Header:     make(http.Header),
+		}, nil
+	})
+	status, _, raw, err := newTestClient(rt).Status(context.Background(), "txn_schema")
+	if err == nil {
+		t.Fatal("expected schema error when transaction_details is absent from the envelope")
+	}
+	if status != "" {
+		t.Errorf("status = %q, want empty on schema error", status)
+	}
+	if len(raw) == 0 {
+		t.Error("raw response must be preserved on schema error")
+	}
+}
+
+// A present-but-empty transaction_details ({}) is a legitimate
+// not_found response (this is what the mock gateway sends for unknown
+// txns) and must NOT be treated as the schema-violation case above.
+func TestStatus_EmptyButPresentTransactionDetails_IsNotFoundNotSchemaError(t *testing.T) {
+	body := `{"status":0,"msg":"No transaction found","transaction_details":{}}`
+	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Header:     make(http.Header),
+		}, nil
+	})
+	status, _, _, err := newTestClient(rt).Status(context.Background(), "txn_empty")
+	if err != nil {
+		t.Fatalf("err = %v, want nil — an empty object is a valid envelope, not a schema violation", err)
+	}
+	if status != "not_found" {
+		t.Errorf("status = %q, want not_found", status)
+	}
+}
+
+// ── form=2 enforcement ─────────────────────────────────────────────────────────
+
+func TestNewClient_AppendsFormParamWhenMissing(t *testing.T) {
+	c := NewClient("https://info.payu.in/merchant/postservice.php", "key", "salt")
+	if !strings.Contains(c.BaseURL, "form=2") {
+		t.Errorf("BaseURL = %q, want form=2 appended", c.BaseURL)
+	}
+}
+
+func TestNewClient_PreservesExistingFormParam(t *testing.T) {
+	c := NewClient("https://info.payu.in/merchant/postservice.php?form=1", "key", "salt")
+	if strings.Count(c.BaseURL, "form=") != 1 {
+		t.Errorf("BaseURL = %q, want exactly one form param, existing value preserved", c.BaseURL)
+	}
+	if !strings.Contains(c.BaseURL, "form=1") {
+		t.Errorf("BaseURL = %q, want existing form=1 left untouched", c.BaseURL)
+	}
+}
+
+func TestNewClient_PreservesOtherQueryParams(t *testing.T) {
+	c := NewClient("https://info.payu.in/merchant/postservice.php?env=prod", "key", "salt")
+	if !strings.Contains(c.BaseURL, "env=prod") {
+		t.Errorf("BaseURL = %q, want env=prod preserved", c.BaseURL)
+	}
+	if !strings.Contains(c.BaseURL, "form=2") {
+		t.Errorf("BaseURL = %q, want form=2 appended alongside existing params", c.BaseURL)
+	}
+}
+
+func TestNewClient_EmptyBaseURLLeftEmpty(t *testing.T) {
+	c := NewClient("", "key", "salt")
+	if c.BaseURL != "" {
+		t.Errorf("BaseURL = %q, want empty string preserved so Status() returns its configured error", c.BaseURL)
+	}
+}
+
 // ── Amount parsing ────────────────────────────────────────────────────────────
 
 func TestStatus_DecimalRupeesConvertedToPaise(t *testing.T) {

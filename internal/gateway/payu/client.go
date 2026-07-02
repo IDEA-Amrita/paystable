@@ -16,7 +16,7 @@ import (
 )
 
 // Client calls the PayU Verify Payment API (verify_payment command).
-// Docs: https://docs.payu.in/reference/verify-payment
+// Docs: https://docs.payu.in/reference/verify_payment_api
 type Client struct {
 	BaseURL     string
 	MerchantKey string
@@ -28,13 +28,38 @@ type Client struct {
 // baseURL  = PAYU_STATUS_URL
 // merchantKey = GATEWAY_API_KEY (the merchant key, not the salt)
 // salt     = WEBHOOK_SECRET (the PayU salt, same one used for webhook HMAC)
+//
+// postservice.php returns a PHP-serialized body unless the request carries
+// form=2, which asks for JSON. Rather than trust every deployment's env var
+// to include it, we inject it here if it's missing so a bare
+// PAYU_STATUS_URL doesn't silently break JSON parsing in production.
 func NewClient(baseURL, merchantKey, salt string) *Client {
 	return &Client{
-		BaseURL:     baseURL,
+		BaseURL:     ensureFormParam(baseURL),
 		MerchantKey: merchantKey,
 		Salt:        salt,
 		HTTP:        &http.Client{Timeout: 10 * time.Second},
 	}
+}
+
+// ensureFormParam appends form=2 to the URL if not already present.
+// Malformed URLs are returned unchanged; the request itself will fail
+// with a clear error rather than this constructor silently swallowing it.
+func ensureFormParam(raw string) string {
+	if raw == "" {
+		return raw
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	q := u.Query()
+	if q.Get("form") != "" {
+		return raw
+	}
+	q.Set("form", "2")
+	u.RawQuery = q.Encode()
+	return u.String()
 }
 
 // payuEnvelope is the outer PayU verify_payment response shape.
@@ -96,6 +121,15 @@ func (c *Client) Status(ctx context.Context, txnID string) (string, int64, json.
 		return "", 0, raw, fmt.Errorf("invalid response JSON: %w", err)
 	}
 
+	// transaction_details missing from the envelope entirely is a schema
+	// violation (wrong command, flat check_payment-shaped body, a routing
+	// error, ...), not a "this txn doesn't exist yet" signal. Fail loud
+	// with the raw payload attached instead of quietly mapping it to
+	// not_found — those two situations need very different handling.
+	if envelope.TransactionDetails == nil {
+		return "", 0, raw, fmt.Errorf("payu: response missing transaction_details, expected nested verify_payment shape")
+	}
+
 	txnRaw, ok := envelope.TransactionDetails[txnID]
 	if !ok || txnRaw == nil || string(txnRaw) == "null" {
 		return "not_found", 0, raw, nil
@@ -104,6 +138,16 @@ func (c *Client) Status(ctx context.Context, txnID string) (string, int64, json.
 	var detail payuTxnDetail
 	if err := json.Unmarshal(txnRaw, &detail); err != nil {
 		return "", 0, raw, fmt.Errorf("invalid transaction detail JSON: %w", err)
+	}
+
+	// PayU represents "no record of this txn yet" as a present entry with
+	// status: "Not Found" rather than an absent key. Treat it the same as
+	// a missing key (not_found) and skip amount parsing entirely — there
+	// is no real amount to extract, and committing a 0 here would pollute
+	// verification_polls.gateway_amount with a value that looks like a
+	// genuine gateway response instead of "we have nothing yet".
+	if normalizeStatus(detail.Status) == "not_found" {
+		return "not_found", 0, raw, nil
 	}
 
 	rawAmt := detail.Amt
@@ -141,7 +185,7 @@ func normalizeStatus(s string) string {
 		return "failed"
 	case "pending":
 		return "pending"
-	case "":
+	case "", "not found":
 		return "not_found"
 	default:
 		return "pending"
