@@ -228,10 +228,11 @@ func (h *Handler) rotateSecret(w http.ResponseWriter, r *http.Request) {
 // built once at startup from copied config values, so an edit could never
 // take full effect without a restart. Partial mutation made the dashboard
 // claim a change was live when it wasn't, so editing is disabled entirely.
-// Secret rotation (POST /config/rotate-secret) is unaffected — it is
+// Secret rotation (POST /api/v1/admin/config/rotate-secret) is unaffected — it is
 // database-backed and takes effect immediately.
 func (h *Handler) configReadOnly(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Allow", http.MethodGet)
 	writeJSON(w, http.StatusMethodNotAllowed, map[string]string{
-		"error": "config is read-only; edit .env and restart the process, or use /config/rotate-secret for secrets",
+		"error": "config is read-only; edit .env and restart the process, or use /api/v1/admin/config/rotate-secret for secrets",
 	})
 }

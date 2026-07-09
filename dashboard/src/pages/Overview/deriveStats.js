@@ -8,9 +8,8 @@ export function deriveOverviewStats(overviewStats, mismatchStats, deliveryStats)
   const rejectedHooks   = overviewStats?.rejected_webhooks?.value ?? 0
   const mismatchCount   = mismatchStats?.last_7_days ?? 0
   const deliveredCount  = deliveryStats?.delivered_today ?? 0
-  const totalDelivered  = deliveryStats?.delivered_today ?? 0
-  const totalAttempted  = (deliveryStats?.delivered_today ?? 0) + (deliveryStats?.exhausted ?? 0)
-  const deliveryRate    = totalAttempted > 0 ? Math.round((totalDelivered / totalAttempted) * 100) : 100
+  const totalAttempted  = deliveredCount + (deliveryStats?.exhausted ?? 0)
+  const deliveryRate    = totalAttempted > 0 ? Math.round((deliveredCount / totalAttempted) * 100) : 100
   const hasDeliveryIssues = exhaustedDel > 0 || rejectedHooks > 5
 
   return {
