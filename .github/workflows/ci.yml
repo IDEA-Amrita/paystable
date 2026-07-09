@@ -57,11 +57,13 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 22
-      - run: rm -rf node_modules package-lock.json
-        working-directory: dashboard
-      - run: npm install
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - run: npm ci
         working-directory: dashboard
       - run: npm run lint
+        working-directory: dashboard
+      - run: npm test
         working-directory: dashboard
       - run: npm run build
         working-directory: dashboard
