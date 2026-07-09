@@ -76,5 +76,4 @@ export const api = {
   getConfig:            ()      => get('/config'),
   getRotationStatus:    ()      => get('/config/rotation-status'),
   rotateSecret:         (body)  => post('/config/rotate-secret', body),
-  updateConfig:         (body)  => post('/config', body),
 }
