@@ -2,6 +2,7 @@ package hold
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -44,6 +45,55 @@ func TestHandleCreate_InvalidJSON(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("got status %d, want 400", w.Code)
+	}
+}
+
+func TestHandleCreate_DuplicateConflictReturns409(t *testing.T) {
+	db := openTestDB(t)
+	t.Cleanup(func() { _ = db.Close() })
+
+	txnID := testTxnID(t)
+	cleanupHold(t, db, txnID)
+	h := NewHandler(NewStore(db), 900, "test-api-key")
+
+	firstBody := fmt.Sprintf(`{
+		"txn_id": %q,
+		"gateway": "payu",
+		"amount": 5000,
+		"currency": "INR",
+		"ttl_seconds": 300,
+		"callback_url": "https://merchant.example/cb",
+		"metadata": {"order_id": "ord_1"}
+	}`, txnID)
+	firstReq := httptest.NewRequest("POST", "/api/v1/hold", strings.NewReader(firstBody))
+	firstW := httptest.NewRecorder()
+	h.HandleCreate(firstW, firstReq)
+	if firstW.Code != http.StatusCreated {
+		t.Fatalf("first create status = %d, want 201, body=%s", firstW.Code, firstW.Body.String())
+	}
+
+	secondBody := fmt.Sprintf(`{
+		"txn_id": %q,
+		"gateway": "payu",
+		"amount": 7000,
+		"currency": "INR",
+		"ttl_seconds": 300,
+		"callback_url": "https://merchant.example/cb",
+		"metadata": {"order_id": "ord_1"}
+	}`, txnID)
+	secondReq := httptest.NewRequest("POST", "/api/v1/hold", strings.NewReader(secondBody))
+	secondW := httptest.NewRecorder()
+	h.HandleCreate(secondW, secondReq)
+	if secondW.Code != http.StatusConflict {
+		t.Fatalf("second create status = %d, want 409, body=%s", secondW.Code, secondW.Body.String())
+	}
+
+	var resp map[string]string
+	if err := json.NewDecoder(secondW.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode conflict response: %v", err)
+	}
+	if resp["error"] != "hold_conflict" {
+		t.Fatalf("error = %q, want hold_conflict", resp["error"])
 	}
 }
 

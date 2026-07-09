@@ -117,25 +117,46 @@ func handleFireWebhook(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleStatus(w http.ResponseWriter, r *http.Request) {
-	txnID := r.URL.Query().Get("txnid")
+	// Real PayU sends var1=txnid in a POST form body; fall back to query param for tooling.
+	_ = r.ParseForm()
+	txnID := r.FormValue("var1")
 	if txnID == "" {
-		_ = r.ParseForm()
-		txnID = r.FormValue("txnid")
+		txnID = r.URL.Query().Get("txnid")
 	}
+
 	mu.RLock()
 	s, ok := states[txnID]
 	mu.RUnlock()
-	status, amount := "not_found", 0.0
-	if ok {
-		status, amount = s.Status, s.Amount/100
-		if !s.FailUntil.IsZero() && time.Now().Before(s.FailUntil) {
-			status = "failed"
-		}
-	}
-	slog.Info("status polled", "txn_id", txnID, "returning", status)
+
 	w.Header().Set("Content-Type", "application/json")
+
+	if !ok || txnID == "" {
+		slog.Info("status polled", "txn_id", txnID, "returning", "not_found")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"status": 0,
+			"msg":    "No transaction found",
+			"transaction_details": map[string]interface{}{},
+		})
+		return
+	}
+
+	status := s.Status
+	if !s.FailUntil.IsZero() && time.Now().Before(s.FailUntil) {
+		status = "failed"
+	}
+	amountStr := fmt.Sprintf("%.2f", s.Amount/100)
+
+	slog.Info("status polled", "txn_id", txnID, "returning", status)
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"status": status, "amount": amount, "txnid": txnID,
+		"status": 1,
+		"msg":    "Transaction Fetched Successfully",
+		"transaction_details": map[string]interface{}{
+			txnID: map[string]interface{}{
+				"status": status,
+				"amount": amountStr,
+				"txnid":  txnID,
+			},
+		},
 	})
 }
 

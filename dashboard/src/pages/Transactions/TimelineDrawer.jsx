@@ -6,9 +6,12 @@ import Drawer from '../../components/shared/Drawer'
 const EVENT_COLORS = {
   hold_created:       'bg-status-blue',
   webhook_received:   'bg-status-yellow',
+  webhook_rejected:   'bg-status-red',
   poll_completed:     'bg-status-green',
+  poll_failed:        'bg-status-red',
   state_transition:   'bg-status-cyan',
   callback_delivered: 'bg-status-green',
+  callback_failed:    'bg-status-red',
   quarantined:        'bg-status-red',
 }
 

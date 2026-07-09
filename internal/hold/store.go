@@ -4,9 +4,12 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"time"
 )
+
+var ErrCreateConflict = errors.New("hold already exists with different create parameters")
 
 type Hold struct {
 	ID          int64     `json:"-"`
@@ -31,8 +34,13 @@ func NewStore(db *sql.DB) *Store {
 	return &Store{db: db}
 }
 
-// 1)Create: inserts new hold record, generates read token, returns hold details. If txn_id already exists, returns existing hold.
+// Create inserts a hold. A duplicated txn_id is idempotent only when the
+// create parameters are the same as the original request.
 func (s *Store) Create(txnID, gateway, callbackURL, currency string, amount int64, ttl int, metadata []byte) (*Hold, error) {
+	if len(metadata) == 0 {
+		metadata = []byte(`{}`)
+	}
+
 	readToken, err := generateToken()
 	if err != nil {
 		return nil, fmt.Errorf("generate token: %w", err)
@@ -50,8 +58,7 @@ func (s *Store) Create(txnID, gateway, callbackURL, currency string, amount int6
 	).Scan(&h.ID, &h.TxnID, &h.Gateway, &h.Status, &h.Amount, &h.Currency, &h.ReadToken, &h.ExpiresAt, &h.CreatedAt, &h.UpdatedAt)
 
 	if err == sql.ErrNoRows {
-		//conflict: txn_id already exists, return existing
-		return s.GetByTxnID(txnID)
+		return s.getByTxnIDIfCreateMatches(txnID, gateway, callbackURL, currency, amount, ttl, metadata)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("insert hold: %w", err)
@@ -60,7 +67,34 @@ func (s *Store) Create(txnID, gateway, callbackURL, currency string, amount int6
 	return h, nil
 }
 
-// 2)GetByTxnID: retrieves hold by txn_id(called when there's a conflict on create to return existing hold)
+func (s *Store) getByTxnIDIfCreateMatches(txnID, gateway, callbackURL, currency string, amount int64, ttl int, metadata []byte) (*Hold, error) {
+	h := &Hold{}
+	err := s.db.QueryRow(`
+		SELECT id, txn_id, gateway, status, amount, currency, read_token,
+		       callback_url, ttl_seconds, expires_at, created_at, updated_at
+		FROM holds
+		WHERE txn_id = $1
+		  AND gateway = $2
+		  AND amount = $3
+		  AND currency = $4
+		  AND callback_url = $5
+		  AND ttl_seconds = $6
+		  AND metadata = $7::jsonb`,
+		txnID, gateway, amount, currency, callbackURL, ttl, metadata,
+	).Scan(
+		&h.ID, &h.TxnID, &h.Gateway, &h.Status, &h.Amount, &h.Currency, &h.ReadToken,
+		&h.CallbackURL, &h.TTLSeconds, &h.ExpiresAt, &h.CreatedAt, &h.UpdatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, ErrCreateConflict
+	}
+	if err != nil {
+		return nil, err
+	}
+	return h, nil
+}
+
+// GetByTxnID returns a hold by transaction id.
 func (s *Store) GetByTxnID(txnID string) (*Hold, error) {
 	h := &Hold{}
 	err := s.db.QueryRow(`
@@ -73,7 +107,7 @@ func (s *Store) GetByTxnID(txnID string) (*Hold, error) {
 	return h, nil
 }
 
-// 3)GetByTxnIDAndToken: retrieves hold by txn_id and read token (used for status endpoint to validate read access)
+// GetByTxnIDAndToken returns a hold only when the read token matches.
 func (s *Store) GetByTxnIDAndToken(txnID, token string) (*Hold, error) {
 	h := &Hold{}
 	err := s.db.QueryRow(`
