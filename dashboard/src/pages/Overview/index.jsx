@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { LayoutDashboard, Activity } from 'lucide-react'
 import { api } from '../../lib/api'
 import { cn, formatRelativeTime, formatCurrency, statusLabel } from '../../lib/utils'
+import { deriveOverviewStats } from './deriveStats'
 
 const STATUS_COLOR = {
   CONFIRMED:     'text-status-green',
@@ -67,17 +68,16 @@ export default function Overview() {
   }
 
   // Derive numbers from overview stats
-  const activeHolds    = overviewStats?.active_holds?.value ?? 0
-  const pendingDel     = overviewStats?.pending_deliveries?.value ?? deliveryStats?.pending ?? 0
-  const exhaustedDel   = overviewStats?.exhausted_deliveries?.value ?? deliveryStats?.exhausted ?? 0
-  const rejectedHooks  = overviewStats?.rejected_webhooks?.value ?? 0
-  const mismatchCount  = mismatchStats?.total_7d ?? 0
-  const deliveredCount = deliveryStats?.delivered_today ?? 0
-  const totalDelivered = deliveryStats?.delivered_today ?? 0
-  const totalAttempted = (deliveryStats?.delivered_today ?? 0) + (deliveryStats?.exhausted ?? 0)
-  const deliveryRate   = totalAttempted > 0 ? Math.round((totalDelivered / totalAttempted) * 100) : 100
-
-  const isDegraded = exhaustedDel > 0 || rejectedHooks > 5
+  const {
+    activeHolds,
+    pendingDel,
+    exhaustedDel,
+    rejectedHooks,
+    mismatchCount,
+    deliveredCount,
+    deliveryRate,
+    hasDeliveryIssues,
+  } = deriveOverviewStats(overviewStats, mismatchStats, deliveryStats)
 
   const stats = [
     {
@@ -106,10 +106,10 @@ export default function Overview() {
       sub: '/ 1 hr',
     },
     {
-      label: 'False signals caught',
+      label: 'Webhook contradictions',
       value: mismatchCount,
       warn: false,
-      hint: 'Gateway webhooks that were wrong — prevented by paystable this week.',
+      hint: 'Transactions where the first webhook claimed one outcome but verification confirmed the opposite.',
       sub: 'last 7 days',
     },
     {
@@ -130,26 +130,26 @@ export default function Overview() {
         <h1 className="text-base font-medium text-text-primary">Overview</h1>
       </div>
 
-      {/* Gateway status banner */}
+      {/* Delivery status banner */}
       <div className={cn(
         'rounded-xl border px-5 py-4',
-        isDegraded
+        hasDeliveryIssues
           ? 'bg-bg-surface border-status-red/30'
           : 'bg-bg-surface border-bg-border'
       )}>
         <div className="flex items-center gap-3">
           <span className={cn(
             'h-2.5 w-2.5 rounded-full flex-shrink-0',
-            isDegraded ? 'bg-status-red animate-pulse' : 'bg-status-green'
+            hasDeliveryIssues ? 'bg-status-red animate-pulse' : 'bg-status-green'
           )} />
           <span className="text-base font-medium text-text-primary">
-            {isDegraded
-              ? `Gateway degraded — ${exhaustedDel > 0 ? `${exhaustedDel} exhausted deliveries need attention` : `${rejectedHooks} blocked webhooks in the last hour`}`
-              : 'All systems operational. Payments are being verified and delivered normally.'
+            {hasDeliveryIssues
+              ? `Delivery issues detected — ${exhaustedDel > 0 ? `${exhaustedDel} exhausted deliveries need attention` : `${rejectedHooks} blocked webhooks in the last hour`}`
+              : 'No delivery issues. Callbacks are being sent and webhooks accepted normally.'
             }
           </span>
         </div>
-        {isDegraded && (
+        {hasDeliveryIssues && (
           <p className="text-sm text-text-muted mt-1 pl-[22px]">
             {exhaustedDel > 0 && 'Check Health → replay exhausted deliveries. '}
             {rejectedHooks > 5 && 'High webhook rejection rate may indicate a secret mismatch.'}
