@@ -22,7 +22,6 @@ jobs:
           npm ci
           npm run lint
           npm run build
-          rm -rf ../internal/ui/dist
           cp -r dist ../internal/ui/dist
 
       - name: Cross-compile
