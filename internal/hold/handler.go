@@ -2,6 +2,7 @@ package hold
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 )
 
@@ -44,7 +45,8 @@ type Handler struct {
 func NewHandler(store *Store, maxTTL int, apiKey string) *Handler {
 	return &Handler{store: store, maxTTL: maxTTL, defaultTTL: 300, apiKey: apiKey}
 }
-//1)HandleCreate: validates request n applies defaults, creates hold via store, returns hold details with read token
+
+// HandleCreate validates the request, applies defaults, and creates the hold.
 func (h *Handler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 	var req CreateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -74,6 +76,13 @@ func (h *Handler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 
 	hold, err := h.store.Create(req.TxnID, req.Gateway, req.CallbackURL, req.Currency, req.Amount, req.TTLSeconds, metadata)
 	if err != nil {
+		if errors.Is(err, ErrCreateConflict) {
+			writeJSON(w, http.StatusConflict, map[string]string{
+				"error":   "hold_conflict",
+				"message": "txn_id already exists with different create parameters",
+			})
+			return
+		}
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to create hold"})
 		return
 	}
@@ -88,7 +97,8 @@ func (h *Handler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusCreated, resp)
 }
-//2)HandleStatus: validates request, retrieves hold by txn_id and read token, returns hold status and details
+
+// HandleStatus returns the hold after checking the read token or admin key.
 func (h *Handler) HandleStatus(w http.ResponseWriter, r *http.Request) {
 	txnID := r.PathValue("txn_id")
 	token := r.URL.Query().Get("token")

@@ -401,6 +401,24 @@ func TestConfig_ReturnsRealValues(t *testing.T) {
 	}
 }
 
+func TestUpdateConfig_ReturnsMethodNotAllowed(t *testing.T) {
+	db := openAdminTestDB(t)
+	h := newTestHandler(db)
+
+	req := loopbackReq("POST", "/api/v1/admin/config")
+	w := httptest.NewRecorder()
+	h.configReadOnly(w, req)
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want 405", w.Code)
+	}
+	var resp map[string]any
+	json.NewDecoder(w.Body).Decode(&resp) //nolint:errcheck
+	if _, ok := resp["error"]; !ok {
+		t.Error("expected an error message explaining config is read-only")
+	}
+}
+
 func TestMismatchStats_Returns200(t *testing.T) {
 	db := openAdminTestDB(t)
 	h := newTestHandler(db)

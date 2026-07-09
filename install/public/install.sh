@@ -90,6 +90,7 @@ chmod +x "${BINARY}"
 info "fetching .env.example"
 curl -fsSL "https://raw.githubusercontent.com/${REPO}/${LATEST}/.env.example" -o .env.example
 cp .env.example .env
+info "database setup guide: https://docs-paystable.vercel.app/guides/getting-started/#set-up-postgres"
 
 info "writing instructions.md"
 cat << 'EOF' > instructions.md
@@ -99,19 +100,35 @@ Welcome to Paystable! You have successfully installed the binary.
 
 ## Quick Start Steps
 
-1. **Configure Environment Variables**:
-   Open the `.env` file and fill in the required variables (especially `DATABASE_URL` for PostgreSQL):
+1. **Set up Postgres**:
+   Create a local or managed Postgres database for Paystable:
+   ```sql
+   CREATE USER paystable WITH PASSWORD 'change-this-password';
+   CREATE DATABASE paystable OWNER paystable;
+   ```
+   If Postgres reports ident/peer authentication errors, enable password auth for the `paystable` user/database in `pg_hba.conf`.
+   More details:
+   https://docs-paystable.vercel.app/guides/getting-started/#set-up-postgres
+
+2. **Configure Environment Variables**:
+   Open the `.env` file and fill in the required variables:
    ```bash
    nano .env
    ```
+   Set `DATABASE_URL` to match the database user, password, host, and database name you created.
 
-2. **Run Paystable**:
+3. **Check the setup**:
+   ```bash
+   ./paystable doctor
+   ```
+
+4. **Run Paystable**:
    ```bash
    ./paystable
    ```
    *Note: Paystable will automatically run database migrations on startup.*
 
-3. **Access the Ops Dashboard**:
+5. **Access the Ops Dashboard**:
    Once started, open your browser and navigate to:
    `http://localhost:8080/dashboard`
 
@@ -129,5 +146,6 @@ https://github.com/IDEA-Amrita/paystable
 EOF
 
 info "paystable ${LATEST} installed successfully"
-info "next step: cd paystable && edit .env"
-info "then run: ./paystable"
+info "next step: cd paystable && create/configure postgres"
+info "then run: ./paystable doctor"
+info "then start: ./paystable"

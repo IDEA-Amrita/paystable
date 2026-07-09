@@ -10,13 +10,6 @@ export default function Config() {
   const [rotationStatus,  setRotationStatus]  = useState(null)
   const [loading,         setLoading]         = useState(true)
 
-  // Edit config
-  const [isEditing,       setIsEditing]       = useState(false)
-  const [editedValues,    setEditedValues]    = useState({})
-  const [saveLoading,     setSaveLoading]     = useState(false)
-  const [saveError,       setSaveError]       = useState(null)
-  const [saveSuccess,     setSaveSuccess]     = useState(false)
-
   // Rotation form
   const [showForm,        setShowForm]        = useState(false)
   const [gateway,         setGateway]         = useState('payu')
@@ -62,42 +55,6 @@ export default function Config() {
     }
   }
 
-  const handleSaveConfig = async () => {
-    setSaveLoading(true)
-    setSaveError(null)
-    setSaveSuccess(false)
-    try {
-      const payload = {}
-      ;(config || []).forEach(c => {
-        const val = editedValues[c.key]
-        if (c.is_secret) {
-          if (val && val.trim() !== '') {
-            payload[c.key] = val
-          }
-        } else {
-          if (val !== (c.value ?? '')) {
-            payload[c.key] = val
-          }
-        }
-      })
-
-      if (Object.keys(payload).length === 0) {
-        setIsEditing(false)
-        return
-      }
-
-      await api.updateConfig(payload)
-      setSaveSuccess(true)
-      setIsEditing(false)
-      const cfg = await api.getConfig()
-      setConfig(cfg)
-    } catch (err) {
-      setSaveError(err.message)
-    } finally {
-      setSaveLoading(false)
-    }
-  }
-
   if (loading) {
     return (
       <div className="space-y-4">
@@ -120,18 +77,6 @@ export default function Config() {
         <h1 className="text-base font-medium text-text-primary">Config</h1>
       </div>
 
-      {/* Warning/Success messages */}
-      {saveSuccess && (
-        <div className="rounded-xl border border-status-green/30 bg-bg-surface px-5 py-3 text-sm text-status-green flex items-center gap-2">
-          <Check size={14} /> Configuration saved successfully.
-        </div>
-      )}
-      {saveError && (
-        <div className="rounded-xl border border-status-red/30 bg-bg-surface px-5 py-3 text-sm text-status-red flex items-center gap-2">
-          <X size={14} /> Error: {saveError}
-        </div>
-      )}
-
       {unsetSecrets.length > 0 && (
         <div className="rounded-xl border border-status-yellow/30 bg-bg-surface px-5 py-4">
           <div className="flex items-center gap-2">
@@ -152,44 +97,9 @@ export default function Config() {
           <div>
             <h2 className="text-sm font-medium text-text-primary">Environment variables</h2>
             <p className="text-xs text-text-muted mt-0.5">
-              Runtime configuration loaded from environment. Secrets show only their set status.
+              Runtime configuration loaded from environment. Read-only — these values were fixed at
+              process startup; edit .env and restart to change them. Secrets show only their set status.
             </p>
-          </div>
-          <div>
-            {isEditing ? (
-              <div className="flex gap-2">
-                <button
-                  onClick={() => { setIsEditing(false); setSaveError(null) }}
-                  className="text-xs text-text-secondary hover:text-text-primary border border-bg-border px-3 py-1.5 rounded transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleSaveConfig}
-                  disabled={saveLoading}
-                  className="text-xs bg-text-primary text-bg-base font-medium px-3 py-1.5 rounded transition-colors disabled:opacity-50 flex items-center gap-1.5"
-                >
-                  {saveLoading && <RefreshCw size={11} className="animate-spin" />}
-                  Save Changes
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={() => {
-                  setIsEditing(true)
-                  setSaveSuccess(false)
-                  setSaveError(null)
-                  const initial = {}
-                  ;(config || []).forEach(c => {
-                    initial[c.key] = c.is_secret ? '' : (c.value ?? '')
-                  })
-                  setEditedValues(initial)
-                }}
-                className="text-xs text-text-secondary hover:text-text-primary border border-bg-border px-3 py-1.5 rounded transition-colors"
-              >
-                Edit Config
-              </button>
-            )}
           </div>
         </div>
 
@@ -212,24 +122,7 @@ export default function Config() {
                   }
                 </td>
                 <td className="px-4 py-2.5 text-xs font-mono">
-                  {isEditing ? (
-                    item.is_secret ? (
-                      <input
-                        type="password"
-                        placeholder="Enter new secret (or blank to keep)"
-                        value={editedValues[item.key] ?? ''}
-                        onChange={e => setEditedValues({ ...editedValues, [item.key]: e.target.value })}
-                        className="bg-bg-muted border border-bg-border rounded px-2.5 py-1 w-64 text-xs font-mono text-text-primary focus:outline-none focus:border-text-muted"
-                      />
-                    ) : (
-                      <input
-                        type="text"
-                        value={editedValues[item.key] ?? ''}
-                        onChange={e => setEditedValues({ ...editedValues, [item.key]: e.target.value })}
-                        className="bg-bg-muted border border-bg-border rounded px-2.5 py-1 w-64 text-xs font-mono text-text-primary focus:outline-none focus:border-text-muted"
-                      />
-                    )
-                  ) : item.is_secret ? (
+                  {item.is_secret ? (
                     <span className="text-text-muted tracking-widest">{'•'.repeat(10)}</span>
                   ) : (
                     <span className="text-text-primary">{item.value ?? '—'}</span>
