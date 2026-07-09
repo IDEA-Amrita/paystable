@@ -20,7 +20,7 @@ function randomId() {
 }
 
 // --- Transactions ---
-const GATEWAYS = ['PayU', 'Razorpay', 'Cashfree', 'PhonePe']
+const GATEWAYS = ['PayU']
 const STATUSES = ['PENDING', 'VERIFYING', 'CONFIRMED', 'FAILED', 'INDETERMINATE', 'MISMATCH', 'REFUNDED']
 const STATUS_WEIGHTS = [0.05, 0.08, 0.55, 0.16, 0.05, 0.03, 0.08]
 
@@ -257,16 +257,13 @@ function generateMismatches() {
 const ALL_MISMATCHES = generateMismatches()
 
 const mismatchStats = {
-  total_7d: ALL_MISMATCHES.length,
+  last_7_days: ALL_MISMATCHES.length,
   rate_7d: 4.7,
   amount_mismatches: 3,
   trend: Array.from({ length: 14 }, () => Math.floor(seededRandom() * 8) + 1),
   rate_trend: Array.from({ length: 14 }, () => Math.round((seededRandom() * 6 + 1) * 10) / 10),
   per_gateway: {
     PayU: { total: 489, mismatches: 23, rate: 4.7 },
-    Razorpay: { total: 500, mismatches: 6, rate: 1.2 },
-    Cashfree: { total: 500, mismatches: 4, rate: 0.8 },
-    PhonePe: { total: 524, mismatches: 11, rate: 2.1 },
   }
 }
 
@@ -281,7 +278,7 @@ const amountMismatches = [
   },
   {
     txn_id: `TXN-${randomId().slice(0, 12)}`,
-    gateway: 'Razorpay',
+    gateway: 'PayU',
     hold_amount: 99900,
     gateway_reported: 89900,
     difference: 10000,
@@ -289,7 +286,7 @@ const amountMismatches = [
   },
   {
     txn_id: `TXN-${randomId().slice(0, 12)}`,
-    gateway: 'PhonePe',
+    gateway: 'PayU',
     hold_amount: 14900,
     gateway_reported: 12400,
     difference: 2500,

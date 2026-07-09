@@ -2,11 +2,8 @@ package adminapi
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
-	"os"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/IDEA-Amrita/paystable/internal/secrets"
@@ -225,97 +222,17 @@ func (h *Handler) rotateSecret(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (h *Handler) updateConfig(w http.ResponseWriter, r *http.Request) {
-	var req map[string]string
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid body"})
-		return
-	}
-
-	// Read existing .env
-	content, err := os.ReadFile(".env")
-	var lines []string
-	if err == nil {
-		lines = strings.Split(string(content), "\n")
-	}
-
-	// Update existing lines or track what keys we have updated
-	updatedKeys := make(map[string]bool)
-	for i, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-			continue
-		}
-		parts := strings.SplitN(trimmed, "=", 2)
-		if len(parts) != 2 {
-			continue
-		}
-		key := strings.TrimSpace(parts[0])
-		if newVal, ok := req[key]; ok {
-			lines[i] = fmt.Sprintf("%s=%s", key, newVal)
-			updatedKeys[key] = true
-			if err := os.Setenv(key, newVal); err != nil {
-				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to apply config: " + err.Error()})
-				return
-			}
-		}
-	}
-
-	// Append any new keys that were not in .env originally
-	for key, newVal := range req {
-		if !updatedKeys[key] {
-			lines = append(lines, fmt.Sprintf("%s=%s", key, newVal))
-			if err := os.Setenv(key, newVal); err != nil {
-				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to apply config: " + err.Error()})
-				return
-			}
-		}
-	}
-
-	// Write back to .env
-	err = os.WriteFile(".env", []byte(strings.Join(lines, "\n")), 0644)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to save config: " + err.Error()})
-		return
-	}
-
-	// Refresh the local config struct in Handler
-	if val, ok := req["PORT"]; ok {
-		h.cfg.Port = val
-	}
-	if val, ok := req["LOG_LEVEL"]; ok {
-		h.cfg.LogLevel = val
-	}
-	if val, ok := req["GATEWAY"]; ok {
-		h.cfg.Gateway = val
-	}
-	if val, ok := req["STABILIZATION_N"]; ok {
-		if n, err := strconv.Atoi(val); err == nil {
-			h.cfg.StabilizationN = n
-		}
-	}
-	if val, ok := req["MAX_BACKOFF_S"]; ok {
-		if n, err := strconv.Atoi(val); err == nil {
-			h.cfg.MaxBackoffS = n
-		}
-	}
-	if val, ok := req["HOLD_MAX_TTL_S"]; ok {
-		if n, err := strconv.Atoi(val); err == nil {
-			h.cfg.HoldMaxTTLS = n
-		}
-	}
-	if val, ok := req["WEBHOOK_SECRET"]; ok {
-		h.cfg.WebhookSecret = val
-	}
-	if val, ok := req["GATEWAY_API_KEY"]; ok {
-		h.cfg.GatewayAPIKey = val
-	}
-	if val, ok := req["MERCHANT_CALLBACK_SECRET"]; ok {
-		h.cfg.MerchantCallbackSecret = val
-	}
-	if val, ok := req["SECRET_ENCRYPTION_KEY"]; ok {
-		h.cfg.SecretEncryptionKey = val
-	}
-
-	writeJSON(w, http.StatusOK, map[string]any{"success": true, "message": "Configuration updated successfully"})
+// configReadOnly answers POST /api/v1/admin/config. Config editing used to
+// write .env and mutate parts of h.cfg here, but several runtime objects
+// (the PayU client, the delivery worker, the server's listening port) are
+// built once at startup from copied config values, so an edit could never
+// take full effect without a restart. Partial mutation made the dashboard
+// claim a change was live when it wasn't, so editing is disabled entirely.
+// Secret rotation (POST /api/v1/admin/config/rotate-secret) is unaffected — it is
+// database-backed and takes effect immediately.
+func (h *Handler) configReadOnly(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Allow", http.MethodGet)
+	writeJSON(w, http.StatusMethodNotAllowed, map[string]string{
+		"error": "config is read-only; edit .env and restart the process, or use /api/v1/admin/config/rotate-secret for secrets",
+	})
 }
