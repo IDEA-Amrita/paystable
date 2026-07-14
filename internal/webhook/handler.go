@@ -23,10 +23,12 @@ type Handler struct {
 	cfg *config.Config
 }
 
+//NewHandler creates a new webhook handler instance
 func NewHandler(db *sql.DB, cfg *config.Config) *Handler {
 	return &Handler{db: db, cfg: cfg}
 }
 
+//1.1)ServeHTTP processes incoming webhook requests, validates them, and saves the data
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	gateway := r.PathValue("gateway")
 	if gateway == "" {
@@ -54,7 +56,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Timestamp replay protection
+	//1.2) Timestamp replay protection
 	if ts := params["timestamp"]; ts != "" {
 		if t, err := strconv.ParseInt(ts, 10, 64); err == nil {
 			age := time.Since(time.Unix(t, 0))
@@ -75,6 +77,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+//2)verify checks if the webhook signature matches our stored secrets
 func (h *Handler) verify(ctx context.Context, gateway string, params map[string]string) bool {
 	candidates := h.activeSecrets(ctx, gateway)
 	if len(candidates) == 0 && h.cfg.WebhookSecret != "" {
@@ -94,6 +97,7 @@ func (h *Handler) verify(ctx context.Context, gateway string, params map[string]
 	}
 }
 
+//3)activeSecrets retrieves all valid, unexpired decryption keys for the gateway
 func (h *Handler) activeSecrets(ctx context.Context, gateway string) []string {
 	if h.cfg.SecretEncryptionKey == "" {
 		return nil
@@ -133,6 +137,7 @@ func (h *Handler) activeSecrets(ctx context.Context, gateway string) []string {
 	return out
 }
 
+//4)persist saves the valid webhook to the database and schedules a verification poll
 func (h *Handler) persist(gateway string, params map[string]string) error {
 	txnID := extractTxnID(gateway, params)
 	eventType := extractEventType(gateway, params)
@@ -156,8 +161,18 @@ func (h *Handler) persist(gateway string, params map[string]string) error {
 		return err
 	}
 
-	if _, err := h.db.Exec(`INSERT INTO verification_polls (txn_id, attempt_number, scheduled_at, status)
-		SELECT $1, 1, now(), 'pending' WHERE EXISTS (SELECT 1 FROM holds WHERE txn_id = $1)`, txnID); err != nil {
+	// If the hold already has a pending attempt 1 (scheduled proactively by
+	// store.Create), pull its scheduled_at forward to now so the poller runs
+	// immediately instead of waiting out the 10-second head start.
+	// ON CONFLICT prevents a unique constraint error from the index added in
+	// migration 004. The WHERE status='pending' guard ensures we never
+	// touch a poll that is already in_flight or completed.
+	if _, err := h.db.Exec(`
+		INSERT INTO verification_polls (txn_id, attempt_number, scheduled_at, status)
+		SELECT $1, 1, now(), 'pending' WHERE EXISTS (SELECT 1 FROM holds WHERE txn_id = $1)
+		ON CONFLICT (txn_id, attempt_number) DO UPDATE
+			SET scheduled_at = least(verification_polls.scheduled_at, EXCLUDED.scheduled_at)
+		WHERE verification_polls.status = 'pending'`, txnID); err != nil {
 		slog.Warn("enqueue verification poll after webhook failed", "txn_id", txnID, "error", err)
 	}
 
@@ -165,6 +180,7 @@ func (h *Handler) persist(gateway string, params map[string]string) error {
 	return nil
 }
 
+//5)quarantine logs rejected webhooks for security auditing and debugging
 func (h *Handler) quarantine(gateway, reason string, r *http.Request, body []byte) {
 	headers, _ := json.Marshal(r.Header)
 	ip, _, _ := net.SplitHostPort(r.RemoteAddr)
@@ -181,6 +197,7 @@ func (h *Handler) quarantine(gateway, reason string, r *http.Request, body []byt
 	}
 }
 
+//6)extractTxnID normalizes the transaction ID field across different gateways
 func extractTxnID(gateway string, params map[string]string) string {
 	switch gateway {
 	case "payu":
@@ -190,6 +207,7 @@ func extractTxnID(gateway string, params map[string]string) string {
 	}
 }
 
+//7)extractEventType normalizes the event status across different gateways
 func extractEventType(gateway string, params map[string]string) string {
 	switch gateway {
 	case "payu":
@@ -199,6 +217,7 @@ func extractEventType(gateway string, params map[string]string) string {
 	}
 }
 
+//8)parsePayload decodes the webhook body from either JSON or form-encoded formats
 func parsePayload(body []byte, contentType string) (map[string]string, error) {
 	params := make(map[string]string)
 
