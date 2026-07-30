@@ -16,6 +16,9 @@ import (
 	"github.com/lib/pq"
 )
 
+// doctorOut is the writer for doctor/init status lines (overridable in tests).
+var doctorOut io.Writer = os.Stdout
+
 var generatedSecretEnv = []string{
 	"WEBHOOK_SECRET",
 	"MERCHANT_CALLBACK_SECRET",
@@ -277,13 +280,13 @@ func migrateQuietly(db *sql.DB) error {
 }
 
 func infoLine(msg string) {
-	fmt.Println("[INFO] " + msg)
+	fmt.Fprintln(doctorOut, "[INFO] "+msg)
 }
 
 func okLine(msg string) {
-	fmt.Println("[OK] " + msg)
+	fmt.Fprintln(doctorOut, "[OK] "+msg)
 }
 
 func warnLine(msg string) {
-	fmt.Println("[WARN] " + msg)
+	fmt.Fprintln(doctorOut, "[WARN] "+msg)
 }
