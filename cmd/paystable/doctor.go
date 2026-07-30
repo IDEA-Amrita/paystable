@@ -21,8 +21,6 @@ var requiredEnv = []string{
 	"DATABASE_URL",
 	"GATEWAY",
 	"WEBHOOK_SECRET",
-	"GATEWAY_API_KEY",
-	"PAYU_STATUS_URL",
 	"MERCHANT_CALLBACK_SECRET",
 	"ADMIN_API_KEY",
 }
@@ -45,6 +43,12 @@ func runDoctor(args []string) error {
 	missing := missingRequiredEnv()
 	if len(missing) > 0 {
 		warnLine("missing required env vars: " + strings.Join(missing, ", "))
+	}
+
+	if genMissing := missingGeneratedSecrets(); len(genMissing) > 0 {
+		warnLine("missing generated secrets: " + strings.Join(genMissing, ","))
+		infoLine("create them with: ./paystable init")
+		infoLine("(init refuses to overwrite an existing .env — rename it first if needed)")
 	}
 
 	dsn := os.Getenv("DATABASE_URL")
@@ -70,7 +74,11 @@ func runDoctor(args []string) error {
 	okLine("database migrations are ready")
 
 	if len(missing) > 0 {
-		infoLine("edit .env and run: ./paystable doctor")
+		if genMissing := missingGeneratedSecrets(); len(genMissing) > 0 {
+			infoLine("run: ./paystable init")
+		} else {
+			infoLine("edit .env and run: ./paystable doctor")
+		}
 		return fmt.Errorf("doctor found missing configuration")
 	}
 
@@ -90,6 +98,23 @@ func printDoctorUsage() {
 func missingRequiredEnv() []string {
 	var missing []string
 	for _, key := range requiredEnv {
+		if os.Getenv(key) == "" {
+			missing = append(missing, key)
+		}
+	}
+	return missing
+}
+
+var generatedSecretEnv = []string{
+	"WEBHOOK_SECRET",
+	"MERCHANT_CALLBACK_SECRET",
+	"ADMIN_API_KEY",
+	"SECRET_ENCRYPTION_KEY",
+}
+
+func missingGeneratedSecrets() []string {
+	var missing []string
+	for _, key := range generatedSecretEnv {
 		if os.Getenv(key) == "" {
 			missing = append(missing, key)
 		}
