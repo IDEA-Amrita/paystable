@@ -66,9 +66,8 @@
   curl -fsSL "$URL" -o "${BINARY}"
   
   info "downloading checksums"
-  curl -fsSL
-  "https://github.com/${REPO}/releases/download/${LATEST}/checksums.txt" -o
-  checksums.txt
+  curl -fsSL "https://github.com/${REPO}/releases/download/${LATEST}/checksums.txt" -o checksums.txt
+  
   EXPECTED=$(grep " ${ASSET}$" checksums.txt | awk '{print $1}')
   if [ -z "$EXPECTED" ]; then
     error "checksum for ${ASSET} was not found"
