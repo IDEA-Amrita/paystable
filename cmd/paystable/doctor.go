@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"net/url"
 	"os"
-	"runtime"
 	"strings"
 
 	"github.com/IDEA-Amrita/paystable/internal/config"
@@ -16,25 +15,16 @@ import (
 	"github.com/lib/pq"
 )
 
-// doctorOut is the writer for doctor/init status lines (overridable in tests).
-var doctorOut io.Writer = os.Stdout
+const postgresSetupGuide = "https://docs-paystable.vercel.app/guides/getting-started/#set-up-postgres"
 
-var generatedSecretEnv = []string{
+var requiredEnv = []string{
+	"DATABASE_URL",
+	"GATEWAY",
 	"WEBHOOK_SECRET",
-	"MERCHANT_CALLBACK_SECRET",
-	"ADMIN_API_KEY",
-	"SECRET_ENCRYPTION_KEY",
-}
-
-var gatewayCredentialEnv = []string{
 	"GATEWAY_API_KEY",
 	"PAYU_STATUS_URL",
-}
-
-type dbTarget struct {
-	User     string
-	Database string
-	Host     string
+	"MERCHANT_CALLBACK_SECRET",
+	"ADMIN_API_KEY",
 }
 
 func runDoctor(args []string) error {
@@ -48,108 +38,42 @@ func runDoctor(args []string) error {
 		}
 	}
 
-	infoLine("starting paystable doctor (local setup check)")
+	infoLine("starting paystable doctor")
 	config.LoadDotEnv()
 	infoLine("loaded .env if present")
 
-	var failed bool
-
-	// Environment
-	fmt.Println()
-	fmt.Println("Environment")
-
-	genMissing := missingKeys(generatedSecretEnv)
-	if len(genMissing) > 0 {
-		failed = true
-		warnLine("missing generated secrets: " + strings.Join(genMissing, ", "))
-		infoLine("create them with: ./paystable init")
-		infoLine("(init refuses to overwrite an existing .env — rename it first if needed)")
-	} else {
-		okLine("generated secrets are set")
-	}
-
-	gatewayMissing := missingKeys(gatewayCredentialEnv)
-	if len(gatewayMissing) > 0 {
-		warnLine("missing gateway credentials: " + strings.Join(gatewayMissing, ", "))
-		infoLine("get these from your PayU dashboard and set them in .env")
-		infoLine("gateway gaps are warnings only — doctor continues")
-	} else {
-		okLine("gateway credentials are set")
-	}
-
-	if os.Getenv("GATEWAY") == "" {
-		warnLine("GATEWAY is not set (expected: payu)")
-		infoLine("edit .env and set GATEWAY=payu")
+	missing := missingRequiredEnv()
+	if len(missing) > 0 {
+		warnLine("missing required env vars: " + strings.Join(missing, ", "))
 	}
 
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
-		failed = true
-		warnLine("DATABASE_URL is not set")
-		infoLine("edit .env and set DATABASE_URL, or run: ./paystable init")
-		fmt.Println()
-		fmt.Println("=== Database ===")
-		warnLine("skipped — DATABASE_URL missing")
-		fmt.Println()
-		fmt.Println("=== Migrations ===")
-		warnLine("skipped — no database connection")
-		return fmt.Errorf("doctor found configuration problems")
+		infoLine("database setup guide: " + postgresSetupGuide)
+		return fmt.Errorf("DATABASE_URL is not set")
 	}
-	okLine("DATABASE_URL is set")
 
-	target := parseDatabaseURL(dsn)
-
-	// Database
-	fmt.Println()
-	fmt.Println("=== Database ===")
-	infoLine("database target: " + formatDBTarget(target))
-
+	infoLine("database target: " + describeDatabaseURL(dsn))
 	db, err := database.Connect(dsn)
 	if err != nil {
-		failed = true
-		explainDatabaseConnectionError(err, target)
+		explainDatabaseConnectionError(err)
+		infoLine("database setup guide: " + postgresSetupGuide)
 		return fmt.Errorf("database connection failed: %w", err)
 	}
 	defer closeDB(db)
 	okLine("connected to postgres")
 
-	// Migrations
-	fmt.Println()
-	fmt.Println("=== Migrations ===")
-
-	pending, err := database.PendingMigrations(db)
-	if err != nil {
-		failed = true
-		warnLine("could not list pending migrations: " + err.Error())
-		return fmt.Errorf("migration check failed: %w", err)
-	}
-	if len(pending) == 0 {
-		okLine("no pending migrations")
-	} else {
-		infoLine(fmt.Sprintf("%d pending migration(s):", len(pending)))
-		for _, name := range pending {
-			infoLine("  " + name)
-		}
-		infoLine("applying pending migrations")
-	}
-
+	infoLine("checking and applying database migrations")
 	if err := migrateQuietly(db); err != nil {
-		failed = true
-		warnLine("migration apply failed: " + err.Error())
-		infoLine("fix DB permissions for the DATABASE_URL user, then rerun: ./paystable doctor")
 		return fmt.Errorf("migration check failed: %w", err)
 	}
 	okLine("database migrations are ready")
 
-	fmt.Println()
-	if failed {
-		return fmt.Errorf("doctor found configuration problems")
+	if len(missing) > 0 {
+		infoLine("edit .env and run: ./paystable doctor")
+		return fmt.Errorf("doctor found missing configuration")
 	}
-	if len(gatewayMissing) > 0 {
-		okLine("database is ready")
-		infoLine("set PayU gateway credentials in .env, then start: ./paystable")
-		return nil
-	}
+
 	okLine("paystable is ready to start")
 	return nil
 }
@@ -158,14 +82,14 @@ func printDoctorUsage() {
 	fmt.Println("usage: paystable doctor")
 	fmt.Println()
 	fmt.Println("checks:")
-	fmt.Println("  Environment — generated secrets and gateway credentials")
-	fmt.Println("  Database    — Postgres connectivity")
-	fmt.Println("  Migrations  — pending/applied schema migrations")
+	fmt.Println("  .env required variables")
+	fmt.Println("  Postgres connection")
+	fmt.Println("  database migrations")
 }
 
-func missingKeys(keys []string) []string {
+func missingRequiredEnv() []string {
 	var missing []string
-	for _, key := range keys {
+	for _, key := range requiredEnv {
 		if os.Getenv(key) == "" {
 			missing = append(missing, key)
 		}
@@ -173,27 +97,20 @@ func missingKeys(keys []string) []string {
 	return missing
 }
 
-func parseDatabaseURL(raw string) dbTarget {
+func describeDatabaseURL(raw string) string {
 	u, err := url.Parse(raw)
 	if err != nil {
-		return dbTarget{
-			User:     "paystable",
-			Database: "paystable",
-			Host:     "(unparseable)",
-		}
+		return "unparseable DATABASE_URL"
 	}
 
 	dbName := strings.TrimPrefix(u.Path, "/")
 	if dbName == "" {
-		dbName = "paystable"
+		dbName = "(missing database name)"
 	}
 
-	user := ""
-	if u.User != nil {
-		user = u.User.Username()
-	}
+	user := u.User.Username()
 	if user == "" {
-		user = "paystable"
+		user = "(missing user)"
 	}
 
 	host := u.Host
@@ -201,14 +118,10 @@ func parseDatabaseURL(raw string) dbTarget {
 		host = "(missing host)"
 	}
 
-	return dbTarget{User: user, Database: dbName, Host: host}
+	return fmt.Sprintf("user=%s host=%s database=%s", user, host, dbName)
 }
 
-func formatDBTarget(t dbTarget) string {
-	return fmt.Sprintf("user=%s host=%s database=%s", t.User, t.Host, t.Database)
-}
-
-func explainDatabaseConnectionError(err error, target dbTarget) {
+func explainDatabaseConnectionError(err error) {
 	var pqErr *pq.Error
 	if errors.As(err, &pqErr) {
 		message := strings.ToLower(pqErr.Message)
@@ -216,53 +129,25 @@ func explainDatabaseConnectionError(err error, target dbTarget) {
 		case strings.Contains(message, "ident authentication failed") ||
 			strings.Contains(message, "peer authentication failed"):
 			warnLine("postgres is using ident/peer auth for this connection")
-			infoLine(`find pg_hba.conf with: sudo -u postgres psql -c "SHOW hba_file;"`)
-			infoLine(fmt.Sprintf(
-				"add before broader ident/peer rules: host %s %s 127.0.0.1/32 scram-sha-256",
-				target.Database, target.User,
-			))
-			infoLine(fmt.Sprintf(
-				"for IPv6 localhost, also add: host %s %s ::1/128 scram-sha-256",
-				target.Database, target.User,
-			))
-			infoLine("reload postgres, then rerun: ./paystable doctor")
+			warnLine("enable password auth for localhost in pg_hba.conf")
+			warnLine("find it with: sudo -u postgres psql -c \"SHOW hba_file;\"")
+			warnLine("add before broader ident/peer rules: host paystable paystable 127.0.0.1/32 scram-sha-256")
+			warnLine("for IPv6 localhost, also add: host paystable paystable ::1/128 scram-sha-256")
+			warnLine("reload postgres, then rerun: ./paystable doctor")
 		case pqErr.Code == "28P01":
-			warnLine("DATABASE_URL password was rejected")
-			infoLine(fmt.Sprintf(
-				"reset it with: ALTER USER %s WITH PASSWORD '<new-password>';",
-				target.User,
-			))
-			infoLine("then update the password in .env DATABASE_URL and rerun: ./paystable doctor")
+			warnLine("postgres accepted password auth, but the DATABASE_URL password was rejected")
+			warnLine("reset it with: ALTER USER paystable WITH PASSWORD 'change-this-password';")
 		case pqErr.Code == "3D000":
 			warnLine("the database in DATABASE_URL does not exist")
-			infoLine(fmt.Sprintf(
-				"create it with: CREATE DATABASE %s OWNER %s;",
-				target.Database, target.User,
-			))
-			infoLine("then rerun: ./paystable doctor")
-		default:
-			warnLine("postgres error: " + pqErr.Message)
-			infoLine("fix DATABASE_URL in .env, then rerun: ./paystable doctor")
+			warnLine("create it with: CREATE DATABASE paystable OWNER paystable;")
 		}
 		return
 	}
 
 	message := strings.ToLower(err.Error())
 	if strings.Contains(message, "connection refused") {
-		warnLine("postgres is not accepting connections at " + target.Host)
-		infoLine(postgresStartHint())
-		infoLine("or update DATABASE_URL host/port in .env, then rerun: ./paystable doctor")
-	}
-}
-
-func postgresStartHint() string {
-	switch runtime.GOOS {
-	case "darwin":
-		return "start postgres with: brew services start postgresql"
-	case "linux":
-		return "start postgres with: sudo systemctl start postgresql"
-	default:
-		return "start your local Postgres service, then rerun: ./paystable doctor"
+		warnLine("postgres is not accepting connections at the DATABASE_URL host and port")
+		warnLine("start postgres or update DATABASE_URL to the correct host and port")
 	}
 }
 
@@ -280,13 +165,13 @@ func migrateQuietly(db *sql.DB) error {
 }
 
 func infoLine(msg string) {
-	fmt.Fprintln(doctorOut, "[INFO] "+msg)
+	fmt.Println("[INFO] " + msg)
 }
 
 func okLine(msg string) {
-	fmt.Fprintln(doctorOut, "[OK] "+msg)
+	fmt.Println("[OK] " + msg)
 }
 
 func warnLine(msg string) {
-	fmt.Fprintln(doctorOut, "[WARN] "+msg)
+	fmt.Println("[WARN] " + msg)
 }

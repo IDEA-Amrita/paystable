@@ -128,12 +128,6 @@ func handleCommand(args []string) bool {
 	}
 
 	switch args[0] {
-	case "init":
-		if err := runInit(args[1:]); err != nil {
-			fmt.Printf("[ERROR] %v\n", err)
-			os.Exit(1)
-		}
-		return true
 	case "doctor":
 		if err := runDoctor(args[1:]); err != nil {
 			fmt.Printf("[ERROR] %v\n", err)
@@ -155,10 +149,9 @@ func handleCommand(args []string) bool {
 }
 
 func printUsage() {
-	fmt.Println("usage: paystable [init|doctor|version]")
+	fmt.Println("usage: paystable [doctor|version]")
 	fmt.Println()
 	fmt.Println("commands:")
-	fmt.Println("  init     create a local .env with generated secrets")
 	fmt.Println("  doctor   check .env, Postgres connectivity, and database migrations")
 	fmt.Println("  version  print the paystable version")
 }
