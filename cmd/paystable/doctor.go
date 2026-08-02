@@ -83,73 +83,77 @@ func runDoctor(args []string) error {
 	}
 
 	dsn := os.Getenv("DATABASE_URL")
+
 	if dsn == "" {
 		failed = true
+
 		warnLine("DATABASE_URL is not set")
 		infoLine("edit .env and set DATABASE_URL, or run: ./paystable init")
+
 		fmt.Println()
 		fmt.Println("=== Database ===")
+
 		warnLine("skipped — DATABASE_URL missing")
+
 		fmt.Println()
 		fmt.Println("=== Migrations ===")
 		warnLine("skipped — no database connection")
-		return fmt.Errorf("doctor found configuration problems")
-	}
-	okLine("DATABASE_URL is set")
-
-	target := parseDatabaseURL(dsn)
-
-	// Database
-	fmt.Println()
-	fmt.Println("=== Database ===")
-	infoLine("database target: " + formatDBTarget(target))
-
-	db, err := database.Connect(dsn)
-	if err != nil {
-		failed = true
-		explainDatabaseConnectionError(err, target)
-		return fmt.Errorf("database connection failed: %w", err)
-	}
-	defer closeDB(db)
-	okLine("connected to postgres")
-
-	// Migrations
-	fmt.Println()
-	fmt.Println("=== Migrations ===")
-
-	pending, err := database.PendingMigrations(db)
-	if err != nil {
-		failed = true
-		warnLine("could not list pending migrations: " + err.Error())
-		return fmt.Errorf("migration check failed: %w", err)
-	}
-	if len(pending) == 0 {
-		okLine("no pending migrations")
 	} else {
-		infoLine(fmt.Sprintf("%d pending migration(s):", len(pending)))
-		for _, name := range pending {
-			infoLine("  " + name)
-		}
-		infoLine("applying pending migrations")
-	}
+		okLine("DATABASE_URL is set")
 
-	if err := migrateQuietly(db); err != nil {
-		failed = true
-		warnLine("migration apply failed: " + err.Error())
-		infoLine("fix DB permissions for the DATABASE_URL user, then rerun: ./paystable doctor")
-		return fmt.Errorf("migration check failed: %w", err)
+		target := parseDatabaseURL(dsn)
+
+		// Database
+		fmt.Println()
+		fmt.Println("=== Database ===")
+		infoLine("database target: " + formatDBTarget(target))
+
+		db, err := database.Connect(dsn)
+		if err != nil {
+			explainDatabaseConnectionError(err, target)
+			return fmt.Errorf("database connection failed: %w", err)
+		}
+		defer closeDB(db)
+		okLine("connected to postgres")
+
+		// Migrations
+		fmt.Println()
+		fmt.Println("=== Migrations ===")
+
+		pending, err := database.PendingMigrations(db)
+		if err != nil {
+			warnLine("could not list pending migrations: " + err.Error())
+			return fmt.Errorf("migration check failed: %w", err)
+		}
+		if len(pending) == 0 {
+			okLine("no pending migrations")
+		} else {
+			infoLine(fmt.Sprintf("%d pending migration(s):", len(pending)))
+			for _, name := range pending {
+				infoLine("  " + name)
+			}
+			infoLine("applying pending migrations")
+		}
+
+		if err := migrateQuietly(db); err != nil {
+			warnLine("migration apply failed: " + err.Error())
+			infoLine("fix DB permissions for the DATABASE_URL user, then rerun: ./paystable doctor")
+			return fmt.Errorf("migration check failed: %w", err)
+		}
+		okLine("database migrations are ready")
 	}
-	okLine("database migrations are ready")
 
 	fmt.Println()
 	if failed {
 		return fmt.Errorf("doctor found configuration problems")
 	}
+
 	if len(gatewayMissing) > 0 {
 		okLine("database is ready")
 		infoLine("set PayU gateway credentials in .env, then start: ./paystable")
 		return nil
 	}
+
 	okLine("paystable is ready to start")
 	return nil
 }
@@ -279,14 +283,18 @@ func migrateQuietly(db *sql.DB) error {
 	return database.Migrate(db)
 }
 
+func doctorPrintln(prefix, msg string) {
+	_, _ = fmt.Fprintln(doctorOut, prefix+msg)
+}
+
 func infoLine(msg string) {
-	fmt.Fprintln(doctorOut, "[INFO] "+msg)
+	doctorPrintln("[INFO] ", msg)
 }
 
 func okLine(msg string) {
-	fmt.Fprintln(doctorOut, "[OK] "+msg)
+	doctorPrintln("[OK] ", msg)
 }
 
 func warnLine(msg string) {
-	fmt.Fprintln(doctorOut, "[WARN] "+msg)
+	doctorPrintln("[WARN] ", msg)
 }
