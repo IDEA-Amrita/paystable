@@ -153,7 +153,6 @@ func runDoctor(args []string) error {
 		infoLine("set PayU gateway credentials in .env, then start: ./paystable")
 		return nil
 	}
-
 	okLine("paystable is ready to start")
 	return nil
 }
