@@ -14,7 +14,8 @@ import (
 
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
-//1)Connect: establishes a connection to the PostgreSQL database using the provided URL
+
+// 1)Connect: establishes a connection to the PostgreSQL database using the provided URL
 func Connect(databaseURL string) (*sql.DB, error) {
 	db, err := sql.Open("postgres", databaseURL)
 	if err != nil {
@@ -25,7 +26,8 @@ func Connect(databaseURL string) (*sql.DB, error) {
 	}
 	return db, nil
 }
-//2)Migrate: ensures the schema_migrations table exists, reads migration files from the embedded filesystem, and used for executing all sql files
+
+// 2)Migrate: ensures the schema_migrations table exists, reads migration files from the embedded filesystem, and used for executing all sql files
 func Migrate(db *sql.DB) error {
 	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
 		version text PRIMARY KEY,
@@ -77,4 +79,43 @@ func Migrate(db *sql.DB) error {
 	}
 
 	return nil
+}
+
+// PendingMigrations returns *.up.sql filenames not yet recorded in schema_migrations.
+// Ensures schema_migrations exists. Does not apply migrations.
+func PendingMigrations(db *sql.DB) ([]string, error) {
+	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+		version text PRIMARY KEY,
+		applied_at timestamptz NOT NULL DEFAULT now()
+	)`)
+	if err != nil {
+		return nil, fmt.Errorf("create migrations table: %w", err)
+	}
+
+	entries, err := migrationsFS.ReadDir("migrations")
+	if err != nil {
+		return nil, fmt.Errorf("read migrations dir: %w", err)
+	}
+
+	var upFiles []string
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".up.sql") {
+			upFiles = append(upFiles, e.Name())
+		}
+	}
+	sort.Strings(upFiles)
+
+	var pending []string
+	for _, name := range upFiles {
+		version := strings.TrimSuffix(name, ".up.sql")
+		var exists bool
+		err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version = $1)", version).Scan(&exists)
+		if err != nil {
+			return nil, fmt.Errorf("check migration %s: %w", version, err)
+		}
+		if !exists {
+			pending = append(pending, name)
+		}
+	}
+	return pending, nil
 }
